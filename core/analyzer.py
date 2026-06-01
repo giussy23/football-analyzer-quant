@@ -5,7 +5,8 @@ analyzer.py — Pipeline de análisis: backtest walk-forward, Kelly, scoring de 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+import threading
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,48 @@ from .config import (
     MAX_OVERROUND_1X2, MAX_OVERROUND_OU, MIN_SAMPLE, MODEL_FILE,
 )
 from .consensus import bookmakers_from_api_response, consensus_from_bookmakers, edge_vs_consensus
+
+
+def _train_dc_with_timeout(
+    dc_model,
+    data: pd.DataFrame,
+    timeout_secs: int = 15,
+    cb: Optional[Callable] = None,
+) -> None:
+    """
+    Entrena el modelo Dixon-Coles en un hilo aparte con timeout.
+    Si supera timeout_secs, lo omite y continúa con ML-only.
+    """
+    done   = threading.Event()
+    error  = [None]
+
+    def _worker():
+        try:
+            dc_model.fit(data)
+        except Exception as exc:
+            error[0] = exc
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+    finished = done.wait(timeout=timeout_secs)
+
+    if not finished:
+        logger.warning(
+            "Dixon-Coles timeout (%ds) — análisis continúa con ML solo.", timeout_secs
+        )
+        if cb:
+            cb("⚠ Dixon-Coles omitido (timeout) — ML solo activo…")
+    elif error[0]:
+        logger.warning("Dixon-Coles error: %s", error[0])
+        if cb:
+            cb("⚠ Dixon-Coles error — ML solo activo…")
+    else:
+        logger.info("Dixon-Coles completado.")
+        if cb:
+            cb("Dixon-Coles listo ✓")
 from .data import fetch_csv, prepare_fixtures, prepare_historic
 from .features import (
     build_feature_row, build_team_long,
@@ -204,12 +247,12 @@ class Analyzer:
             self.model.fit(train_all)
             self.model.save(MODEL_FILE)
 
-        # Entrenar Dixon-Coles con todos los históricos disponibles
+        # Entrenar Dixon-Coles con timeout (puede ser lento con muchas ligas)
         all_hist = pd.concat(list(self.hist_by_div.values()), ignore_index=True) \
                    if self.hist_by_div else pd.DataFrame()
         if len(all_hist) >= 50:
             _cb("Entrenando Dixon-Coles Poisson…")
-            self.dc_model.fit(all_hist)
+            _train_dc_with_timeout(self.dc_model, all_hist, timeout_secs=15, cb=_cb)
 
         _cb("Generando predicciones…")
 

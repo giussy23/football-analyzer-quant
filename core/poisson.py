@@ -86,7 +86,7 @@ class DixonColesModel:
 
     # ── Entrenamiento ─────────────────────────────────────────────────────────
 
-    def fit(self, df: pd.DataFrame, max_matches: int = 400) -> "DixonColesModel":
+    def fit(self, df: pd.DataFrame, max_matches: int = 200) -> "DixonColesModel":
         """
         Entrena el modelo con datos históricos.
 
@@ -166,7 +166,7 @@ class DixonColesModel:
                 neg_log_likelihood, x0,
                 method="L-BFGS-B",
                 bounds=bounds,
-                options={"maxiter": 80, "ftol": 1e-5},  # rápido: 80 iter suficientes
+                options={"maxiter": 40, "ftol": 1e-4},  # rápido: 40 iter con ftol amplio
             )
             params = result.x
             logger.info("Dixon-Coles convergió. fun=%.4f success=%s", result.fun, result.success)
