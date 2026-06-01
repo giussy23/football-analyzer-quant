@@ -297,36 +297,64 @@ class QuinielaView(ctk.CTkFrame):
             )
         )
 
-    # ── Generación IA (desde resultados del análisis) ─────────────────────────
+    # ── Generación IA ─────────────────────────────────────────────────────────
 
     def generate_ai(self, df: pd.DataFrame | None = None) -> None:
-        """Aplica picks IA a los partidos ya cargados, o carga desde análisis."""
-        # Si ya tenemos filas oficiales, solo regeneramos los picks
+        """
+        Aplica picks IA. Siempre re-enriquece con el análisis más reciente.
+
+        Flujo:
+          - Con filas cargadas (oficial o análisis): re-enriquece y aplica picks.
+          - Sin filas: las crea desde los resultados del análisis.
+        """
+        # Obtener análisis actual (puede ser None o vacío)
+        if df is None:
+            df = getattr(self.app, "results", None)
+        has_analysis = df is not None and not df.empty
+
+        # ── Caso A: ya hay filas (jornada oficial o análisis previo) ──────────
         if self._rows:
+            # Re-enriquecer con predicciones frescas del análisis
+            if has_analysis:
+                self._enrich_from_analysis(df)
+
+            # Aplicar picks IA donde haya predicción
             for r in self._rows:
                 if r.p_h > 0:
                     r.pick_var.set(_ai_pick(r.p_h, r.p_d, r.p_a))
+                # Sin predicción: mantener pick actual (no sobreescribir)
+
             self._refresh_tree()
             with_pred = sum(1 for r in self._rows if r.p_h > 0)
+
+            if with_pred == 0:
+                self.status_lbl.configure(
+                    text="⚠  Sin predicciones IA disponibles. "
+                         "Ejecuta ▶ Run Analysis con ligas europeas."
+                )
+            else:
+                self.status_lbl.configure(
+                    text=f"✓  Picks IA aplicados  ·  "
+                         f"{with_pred}/{len(self._rows)} partidos con predicción del modelo"
+                )
+            return
+
+        # ── Caso B: no hay filas — cargar desde análisis ─────────────────────
+        if not has_analysis:
             self.status_lbl.configure(
-                text=f"✓  Picks IA aplicados · {with_pred} partidos con predicción"
+                text="⚠  Carga la jornada oficial (📋) "
+                     "o ejecuta el análisis (▶ Run Analysis) primero."
             )
             return
 
-        # Sin filas previas: cargar desde resultados del análisis
-        if df is None:
-            df = getattr(self.app, "results", None)
-
-        if df is None or df.empty:
-            self.status_lbl.configure(
-                text="⚠  Pulsa primero 📋 Cargar Jornada Oficial, "
-                     "o ejecuta el análisis."
-            )
-            return
-
-        fut = df[df["p_home"].notna() & df["p_draw"].notna() & df["p_away"].notna()].copy()
+        fut = df[
+            df["p_home"].notna() & df["p_draw"].notna() & df["p_away"].notna()
+        ].copy()
         if fut.empty:
-            self.status_lbl.configure(text="⚠  Sin partidos con predicciones del modelo.")
+            self.status_lbl.configure(
+                text="⚠  El análisis no tiene partidos con predicciones IA. "
+                     "Selecciona ligas europeas y vuelve a ejecutar."
+            )
             return
 
         fut = fut.head(self.MAX_MATCHES)
@@ -336,8 +364,33 @@ class QuinielaView(ctk.CTkFrame):
 
         self._refresh_tree()
         self.status_lbl.configure(
-            text=f"✓  {len(self._rows)} partidos del análisis · picks IA aplicados"
+            text=f"✓  {len(self._rows)} partidos del análisis  ·  picks IA generados"
         )
+
+    def _enrich_from_analysis(self, df: pd.DataFrame) -> None:
+        """
+        Re-enriquece las filas existentes con las predicciones del análisis actual.
+        Útil cuando el análisis se corrió después de cargar la jornada oficial.
+        """
+        raw = [
+            {
+                "local":        str(r.data.get("home_team", "")),
+                "visitante":    str(r.data.get("away_team", "")),
+                "local_en":     str(r.data.get("home_team", "")),
+                "visitante_en": str(r.data.get("away_team", "")),
+            }
+            for r in self._rows
+        ]
+        enriched = match_with_predictions(raw, df)
+
+        for r, m in zip(self._rows, enriched):
+            ph  = m.get("p_home")
+            pd_ = m.get("p_draw")
+            pa  = m.get("p_away")
+            if ph is not None and pd.notna(ph) and float(ph) > 0:
+                r.p_h = float(ph)
+                r.p_d = float(pd_) if (pd_ is not None and pd.notna(pd_)) else 0.0
+                r.p_a = float(pa)  if (pa  is not None and pd.notna(pa))  else 0.0
 
     def clear_picks(self) -> None:
         for r in self._rows:
