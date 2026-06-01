@@ -76,8 +76,9 @@ def fetch_odds_fixtures(
             "apiKey":     api_key,
             "regions":    regions,
             "markets":    "h2h,totals",
-            "bookmakers": bookmaker,
             "oddsFormat": "decimal",
+            # Sin filtro de casa: aceptamos cualquier bookmaker disponible
+            # y elegimos el preferido (o el primero) en _parse_match()
         }
 
         logger.info("The Odds API → %s (%s)", div, sport_key)
