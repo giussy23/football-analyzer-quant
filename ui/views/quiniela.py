@@ -261,10 +261,11 @@ class QuinielaView(ctk.CTkFrame):
         """Llamado en el hilo principal tras recibir los datos oficiales."""
         self._rows = []
         for m in matches:
-            # Construir un Series mínimo compatible con QuilineaRow
             row_data = {
                 "home_team":    m["local"],
+                "home_team_en": m.get("local_en", m["local"]),   # nombre en inglés para matching
                 "away_team":    m["visitante"],
+                "away_team_en": m.get("visitante_en", m["visitante"]),
                 "league":       "Quiniela Oficial",
                 "date":         "",
                 "p_home":       m.get("p_home"),
@@ -314,36 +315,45 @@ class QuinielaView(ctk.CTkFrame):
 
         # ── Caso A: ya hay filas (jornada oficial o análisis previo) ──────────
         if self._rows:
-            # Re-enriquecer con predicciones frescas del análisis
+            # 1. Re-enriquecer con predicciones frescas del análisis si hay datos
             if has_analysis:
                 self._enrich_from_analysis(df)
 
-            # Aplicar picks IA donde haya predicción
+            # 2. Aplicar picks — siempre genera algo útil
+            model_count  = 0
+            market_count = 0
+            default_count = 0
+
             for r in self._rows:
                 if r.p_h > 0:
+                    # Predicción del modelo (o implícita de cuotas)
                     r.pick_var.set(_ai_pick(r.p_h, r.p_d, r.p_a))
-                # Sin predicción: mantener pick actual (no sobreescribir)
+                    # Distinguir entre modelo real y cuotas implícitas
+                    if r.data.get("reliability_score", 0) > 0:
+                        model_count += 1
+                    else:
+                        market_count += 1
+                else:
+                    # Sin datos: heurística de ventaja local (45/27/28)
+                    r.pick_var.set(_ai_pick(0.45, 0.27, 0.28))
+                    default_count += 1
 
             self._refresh_tree()
-            with_pred = sum(1 for r in self._rows if r.p_h > 0)
 
-            if with_pred == 0:
-                self.status_lbl.configure(
-                    text="⚠  Sin predicciones IA disponibles. "
-                         "Ejecuta ▶ Run Analysis con ligas europeas."
-                )
-            else:
-                self.status_lbl.configure(
-                    text=f"✓  Picks IA aplicados  ·  "
-                         f"{with_pred}/{len(self._rows)} partidos con predicción del modelo"
-                )
+            # Mensaje informativo por fuente
+            parts = []
+            if model_count:  parts.append(f"{model_count} con modelo IA")
+            if market_count: parts.append(f"{market_count} con cuotas de mercado")
+            if default_count: parts.append(f"{default_count} con heurística local")
+            self.status_lbl.configure(
+                text="✓  Picks generados: " + " · ".join(parts)
+            )
             return
 
-        # ── Caso B: no hay filas — cargar desde análisis ─────────────────────
+        # ── Caso B: no hay filas ─────────────────────────────────────────────
         if not has_analysis:
             self.status_lbl.configure(
-                text="⚠  Carga la jornada oficial (📋) "
-                     "o ejecuta el análisis (▶ Run Analysis) primero."
+                text="⚠  Primero pulsa 📋 Cargar Jornada Oficial para ver los partidos."
             )
             return
 
@@ -370,14 +380,18 @@ class QuinielaView(ctk.CTkFrame):
     def _enrich_from_analysis(self, df: pd.DataFrame) -> None:
         """
         Re-enriquece las filas existentes con las predicciones del análisis actual.
-        Útil cuando el análisis se corrió después de cargar la jornada oficial.
+        Usa tanto el nombre en español como en inglés para maximizar coincidencias
+        (p. ej. 'Bélgica' → 'Belgium' en The Odds API).
         """
         raw = [
             {
                 "local":        str(r.data.get("home_team", "")),
+                # home_team_en tiene el nombre en inglés guardado en _populate_official
+                "local_en":     str(r.data.get("home_team_en",
+                                               r.data.get("home_team", ""))),
                 "visitante":    str(r.data.get("away_team", "")),
-                "local_en":     str(r.data.get("home_team", "")),
-                "visitante_en": str(r.data.get("away_team", "")),
+                "visitante_en": str(r.data.get("away_team_en",
+                                               r.data.get("away_team", ""))),
             }
             for r in self._rows
         ]
@@ -391,6 +405,16 @@ class QuinielaView(ctk.CTkFrame):
                 r.p_h = float(ph)
                 r.p_d = float(pd_) if (pd_ is not None and pd.notna(pd_)) else 0.0
                 r.p_a = float(pa)  if (pa  is not None and pd.notna(pa))  else 0.0
+            else:
+                # Fallback: usar probabilidades implícitas de las cuotas si existen
+                oh = r.data.get("B365H")
+                od = r.data.get("B365D")
+                oa = r.data.get("B365A")
+                if oh and od and oa and float(oh) > 1:
+                    tot = 1/float(oh) + 1/float(od) + 1/float(oa)
+                    r.p_h = round((1/float(oh)) / tot, 4)
+                    r.p_d = round((1/float(od)) / tot, 4)
+                    r.p_a = round((1/float(oa)) / tot, 4)
 
     def clear_picks(self) -> None:
         for r in self._rows:
