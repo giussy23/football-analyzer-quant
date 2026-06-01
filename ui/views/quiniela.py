@@ -1,12 +1,14 @@
 """
 ui/views/quiniela.py — Vista de Quinielas IA.
 
-Genera picks 1/X/2 (con dobles y triples opcionales) usando las
-probabilidades del modelo, calcula el coste y la probabilidad de pleno.
+Carga la jornada oficial de La Quiniela (SELAE vía resultados-futbol.com)
+y enriquece cada partido con las predicciones del modelo IA cuando estén
+disponibles. Calcula picks, dobles, triples, coste y P(pleno).
 """
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
@@ -16,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from ...core.config import ACCENT, ACCENT_2, BORDER, CARD, CARD_2, MUTED, TEXT
+from ...core.quiniela_lae import fetch_quiniela_fixture, match_with_predictions
 from ..widgets import make_card, make_textbox, textbox_set
 
 # Coste base por combinación en la quiniela española (€)
@@ -69,9 +72,14 @@ class QuilineaRow:
     def __init__(self, match_data: pd.Series):
         self.data    = match_data
         self.pick_var = tk.StringVar(value="1")
-        self.p_h     = float(match_data.get("p_home", 1/3) or 1/3)
-        self.p_d     = float(match_data.get("p_draw", 1/3) or 1/3)
-        self.p_a     = float(match_data.get("p_away", 1/3) or 1/3)
+        # Probabilidades del modelo — 0 si no disponibles (sin predicción)
+        ph = match_data.get("p_home")
+        pd_ = match_data.get("p_draw")
+        pa = match_data.get("p_away")
+        has_pred = (ph is not None and pd.notna(ph) and float(ph) > 0)
+        self.p_h = float(ph) if has_pred else 0.0
+        self.p_d = float(pd_) if (pd_ is not None and pd.notna(pd_)) else 0.0
+        self.p_a = float(pa) if (pa is not None and pd.notna(pa)) else 0.0
 
 
 class QuinielaView(ctk.CTkFrame):
@@ -108,21 +116,28 @@ class QuinielaView(ctk.CTkFrame):
             text_color=TEXT, font=ctk.CTkFont(size=20, weight="bold"),
         ).grid(row=0, column=0, padx=16, pady=14, sticky="w")
 
+        # Botón principal: carga la jornada oficial de SELAE
         ctk.CTkButton(
-            ctrl, text="⚡  Generar con IA",
+            ctrl, text="📋  Cargar Jornada Oficial",
+            command=self.load_official,
+            fg_color="#1a3a5c", hover_color="#22496f", height=36,
+        ).grid(row=0, column=3, padx=6, pady=14)
+
+        ctk.CTkButton(
+            ctrl, text="⚡  Generar picks IA",
             command=self.generate_ai,
             fg_color=ACCENT, hover_color=ACCENT_2, height=36,
-        ).grid(row=0, column=3, padx=6, pady=14)
+        ).grid(row=0, column=4, padx=6, pady=14)
 
         ctk.CTkButton(
             ctrl, text="Limpiar",
             command=self.clear_picks,
             fg_color="#1f3357", height=36,
-        ).grid(row=0, column=4, padx=(0, 16), pady=14)
+        ).grid(row=0, column=5, padx=(0, 16), pady=14)
 
         self.status_lbl = ctk.CTkLabel(
             ctrl,
-            text="Ejecuta el análisis y pulsa ⚡ Generar con IA",
+            text="Pulsa 📋 Cargar Jornada Oficial para obtener los partidos reales de La Quiniela",
             text_color=MUTED,
         )
         self.status_lbl.grid(row=0, column=2, padx=8, sticky="w")
@@ -220,18 +235,95 @@ class QuinielaView(ctk.CTkFrame):
             lbl.pack(anchor="w", padx=12, pady=(0, 10))
             self._kpi_labels[key] = lbl
 
-    # ── Generación IA ─────────────────────────────────────────────────────────
+    # ── Carga jornada oficial SELAE ───────────────────────────────────────────
 
-    def generate_ai(self, df: pd.DataFrame | None = None) -> None:
-        """Carga los próximos partidos y genera picks con IA."""
-        if df is None:
-            df = self.app.results
+    def load_official(self) -> None:
+        """Descarga la jornada oficial en hilo de fondo para no bloquear la UI."""
+        self.status_lbl.configure(text="⏳  Descargando jornada oficial de La Quiniela…")
+        threading.Thread(target=self._fetch_official_worker, daemon=True).start()
 
-        if df is None or df.empty:
-            self.status_lbl.configure(text="⚠  Ejecuta el análisis primero.")
+    def _fetch_official_worker(self) -> None:
+        """Hilo de fondo: fetch + enriquecimiento con predicciones."""
+        data = fetch_quiniela_fixture(timeout=20)
+        if not data:
+            self.app.after(0, lambda: self.status_lbl.configure(
+                text="⚠  No se pudo obtener la jornada oficial. Comprueba la conexión."
+            ))
             return
 
-        # Tomar hasta MAX_MATCHES partidos futuros con probabilidades disponibles
+        # Enriquecer con predicciones del modelo (si están disponibles)
+        df = getattr(self.app, "results", None)
+        enriched = match_with_predictions(data["matches"], df)
+
+        self.app.after(0, lambda: self._populate_official(data["jornada"], enriched))
+
+    def _populate_official(self, jornada: str, matches: list[dict]) -> None:
+        """Llamado en el hilo principal tras recibir los datos oficiales."""
+        self._rows = []
+        for m in matches:
+            # Construir un Series mínimo compatible con QuilineaRow
+            row_data = {
+                "home_team":    m["local"],
+                "away_team":    m["visitante"],
+                "league":       "Quiniela Oficial",
+                "date":         "",
+                "p_home":       m.get("p_home"),
+                "p_draw":       m.get("p_draw"),
+                "p_away":       m.get("p_away"),
+                "pick":         m.get("model_pick") or "NO BET",
+                "odds":         m.get("odds_h"),
+                "B365H":        m.get("odds_h"),
+                "B365D":        m.get("odds_d"),
+                "B365A":        m.get("odds_a"),
+                "reliability_score": m.get("reliability", 0),
+            }
+            row = QuilineaRow(pd.Series(row_data))
+            self._rows.append(row)
+
+        # Auto-generar picks IA para partidos con predicciones
+        with_pred = sum(1 for r in self._rows if r.p_h > 0)
+        for r in self._rows:
+            if r.p_h > 0:
+                r.pick_var.set(_ai_pick(r.p_h, r.p_d, r.p_a))
+            else:
+                r.pick_var.set("1X2")  # Triple por defecto cuando no hay predicción
+
+        self._refresh_tree()
+        self.status_lbl.configure(
+            text=(
+                f"✓  Jornada {jornada} · {len(matches)} partidos oficiales · "
+                f"{with_pred} con predicción IA · "
+                f"{len(matches) - with_pred} sin predicción (elige manualmente)"
+            )
+        )
+
+    # ── Generación IA (desde resultados del análisis) ─────────────────────────
+
+    def generate_ai(self, df: pd.DataFrame | None = None) -> None:
+        """Aplica picks IA a los partidos ya cargados, o carga desde análisis."""
+        # Si ya tenemos filas oficiales, solo regeneramos los picks
+        if self._rows:
+            for r in self._rows:
+                if r.p_h > 0:
+                    r.pick_var.set(_ai_pick(r.p_h, r.p_d, r.p_a))
+            self._refresh_tree()
+            with_pred = sum(1 for r in self._rows if r.p_h > 0)
+            self.status_lbl.configure(
+                text=f"✓  Picks IA aplicados · {with_pred} partidos con predicción"
+            )
+            return
+
+        # Sin filas previas: cargar desde resultados del análisis
+        if df is None:
+            df = getattr(self.app, "results", None)
+
+        if df is None or df.empty:
+            self.status_lbl.configure(
+                text="⚠  Pulsa primero 📋 Cargar Jornada Oficial, "
+                     "o ejecuta el análisis."
+            )
+            return
+
         fut = df[df["p_home"].notna() & df["p_draw"].notna() & df["p_away"].notna()].copy()
         if fut.empty:
             self.status_lbl.configure(text="⚠  Sin partidos con predicciones del modelo.")
@@ -239,14 +331,12 @@ class QuinielaView(ctk.CTkFrame):
 
         fut = fut.head(self.MAX_MATCHES)
         self._rows = [QuilineaRow(row) for _, row in fut.iterrows()]
-
-        # Asignar picks IA
         for r in self._rows:
             r.pick_var.set(_ai_pick(r.p_h, r.p_d, r.p_a))
 
         self._refresh_tree()
         self.status_lbl.configure(
-            text=f"✓  {len(self._rows)} partidos · picks generados por IA"
+            text=f"✓  {len(self._rows)} partidos del análisis · picks IA aplicados"
         )
 
     def clear_picks(self) -> None:
@@ -295,19 +385,23 @@ class QuinielaView(ctk.CTkFrame):
                 has_probs = False
             total_prob *= prob
 
-            ai_pick = _ai_pick(p_h, p_d, p_a)
+            ai_pick = _ai_pick(p_h, p_d, p_a) if p_h > 0 else "—"
             tag     = "triple" if mult == 3 else "double" if mult == 2 else "single"
 
             home = r.data.get("home_team", "?")
             away = r.data.get("away_team", "?")
 
+            p1_str = f"{p_h:.0%}" if p_h > 0 else "—"
+            px_str = f"{p_d:.0%}" if p_d > 0 else "—"
+            p2_str = f"{p_a:.0%}" if p_a > 0 else "—"
+
             self.tree.insert("", "end", iid=str(i), tags=(tag,), values=(
                 i + 1,
                 home[:22],
                 away[:22],
-                f"{p_h:.0%}",
-                f"{p_d:.0%}",
-                f"{p_a:.0%}",
+                p1_str,
+                px_str,
+                p2_str,
                 ai_pick,
                 pick,
             ))
