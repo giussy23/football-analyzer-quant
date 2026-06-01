@@ -185,6 +185,7 @@ class AnalysisView(ctk.CTkFrame):
         self.tree.tag_configure("green",  background="#0e2d1d", foreground="#d6ffe6")
         self.tree.tag_configure("yellow", background="#3a2c0e", foreground="#fff0c2")
         self.tree.tag_configure("red",    background="#341313", foreground="#ffd3d3")
+        self.tree.tag_configure("grey",   background="#151c2a", foreground="#8fa3bf")  # sin modelo IA
 
     # ── Refresh methods ────────────────────────────────────────────────────────
 
@@ -239,8 +240,15 @@ class AnalysisView(ctk.CTkFrame):
         )
 
         for _, row in sorted_df.iterrows():
+            # Gris para partidos sin modelo IA (cuotas en tiempo real sin histórico)
+            no_model = (
+                pd.isna(row.get("edge")) and
+                pd.isna(row.get("model_prob")) and
+                row.get("risk_light") == "ROJO"
+            )
             tag = (
-                "green"  if row["risk_light"] == "VERDE"
+                "grey"   if no_model
+                else "green"  if row["risk_light"] == "VERDE"
                 else "yellow" if row["risk_light"] == "AMARILLO"
                 else "red"
             )

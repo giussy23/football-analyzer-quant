@@ -451,9 +451,13 @@ class PremiumApp(ctk.CTk):
                 results          = self._build_odds_only_df(_pf(fixtures), divs_odds_only)
                 backtest_summary = {}
                 diagnostics      = [
-                    "Modo cuotas en tiempo real (sin modelo IA)",
-                    f"Ligas: {', '.join(divs_odds_only)}",
+                    "ℹ️  Modo cuotas en tiempo real (sin modelo IA)",
+                    f"Ligas sin histórico: {', '.join(divs_odds_only)}",
                     f"Fixtures cargados: {len(results)}",
+                    "",
+                    "Los partidos se muestran en GRIS — hay cuotas pero sin predicción del modelo.",
+                    "Para picks IA usa: ⚽ Quiniela IA  o  ⚡ Combinadas IA",
+                    "Las ligas europeas (Premier, La Liga…) estarán disponibles en agosto 2026.",
                 ]
             else:
                 # ── Modelos (pasos pesados — barra animada) ───────────────────
