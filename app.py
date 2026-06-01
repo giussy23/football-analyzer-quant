@@ -365,11 +365,9 @@ class PremiumApp(ctk.CTk):
         self._ui(lambda m=msg: self.analysis_view.update_status(m))
 
     def _set_progress(self, value: float, label: str = "") -> None:
-        """
-        Actualiza la barra de progreso desde cualquier hilo.
-        value: 0.0 – 1.0
-        """
+        """Actualiza la barra de progreso (modo determinado) desde cualquier hilo."""
         def _update(v=value, l=label):
+            self._progress_bar.configure(mode="determinate")
             self._progress_bar.set(v)
             pct = int(v * 100)
             self._prog_pct.configure(
@@ -380,6 +378,20 @@ class PremiumApp(ctk.CTk):
                 text=l or ("✓ Completado" if v >= 1.0 else ""),
                 text_color="#00c853" if v >= 1.0 else MUTED,
             )
+        self._ui(_update)
+
+    def _set_progress_spin(self, active: bool, label: str = "") -> None:
+        """Alterna la barra entre modo animado (activo) y detenido."""
+        def _update(a=active, l=label):
+            if a:
+                self._progress_bar.configure(mode="indeterminate")
+                self._progress_bar.start()
+                self._prog_pct.configure(text="…", text_color=ACCENT)
+            else:
+                self._progress_bar.stop()
+                self._progress_bar.configure(mode="determinate")
+            if l:
+                self._prog_lbl.configure(text=l, text_color=MUTED)
         self._ui(_update)
 
     def _set_run_btn(self, enabled: bool, text: str = "▶  Run Analysis") -> None:
@@ -444,16 +456,24 @@ class PremiumApp(ctk.CTk):
                     f"Fixtures cargados: {len(results)}",
                 ]
             else:
-                step(4.0, "Entrenando modelo ML (RandomForest + GradBoost)…")
+                # ── Modelos (pasos pesados — barra animada) ───────────────────
+                self._set_progress_spin(True, "Entrenando modelos IA…")
                 analyzer = Analyzer(hist, fixtures)
 
-                step(3.0, "Entrenando Dixon-Coles Poisson…")
+                def _on_progress(msg: str) -> None:
+                    self._set_status(msg)
+                    self._ui(lambda m=msg: self._prog_lbl.configure(text=m))
+
                 results = analyzer.run(
                     divs_with_history,
                     float(self.edge1.get()),
                     float(self.edge2.get()),
+                    progress_cb=_on_progress,
                 )
 
+                # Volver a barra determinada al terminar los modelos
+                done += 4.0 + 3.0
+                self._set_progress_spin(False)
                 step(2.0, "Calculando picks, edge y combinadas…")
                 if divs_odds_only:
                     from .core.data import prepare_fixtures as _pf

@@ -86,11 +86,13 @@ class DixonColesModel:
 
     # ── Entrenamiento ─────────────────────────────────────────────────────────
 
-    def fit(self, df: pd.DataFrame) -> "DixonColesModel":
+    def fit(self, df: pd.DataFrame, max_matches: int = 400) -> "DixonColesModel":
         """
         Entrena el modelo con datos históricos.
 
-        df debe tener columnas: home_team, away_team, home_goals, away_goals
+        df debe tener columnas: home_team, away_team, home_goals, away_goals.
+        max_matches: limita a los N partidos más recientes para mantener
+        el entrenamiento rápido (≤ 10 s) con varias ligas seleccionadas.
         """
         data = df.dropna(subset=["home_team", "away_team", "home_goals", "away_goals"]).copy()
         data = data[data["home_goals"] >= 0]
@@ -98,6 +100,11 @@ class DixonColesModel:
         if len(data) < 30:
             logger.warning("Pocos datos para Dixon-Coles (%d partidos), modelo no entrenado.", len(data))
             return self
+
+        # Usar solo los partidos más recientes para mantener velocidad
+        if len(data) > max_matches:
+            data = data.tail(max_matches).copy()
+            logger.info("Dixon-Coles: datos recortados a %d partidos más recientes.", max_matches)
 
         teams = sorted(set(data["home_team"]) | set(data["away_team"]))
         self.teams_ = teams
@@ -159,7 +166,7 @@ class DixonColesModel:
                 neg_log_likelihood, x0,
                 method="L-BFGS-B",
                 bounds=bounds,
-                options={"maxiter": 300, "ftol": 1e-7},
+                options={"maxiter": 80, "ftol": 1e-5},  # rápido: 80 iter suficientes
             )
             params = result.x
             logger.info("Dixon-Coles convergió. fun=%.4f success=%s", result.fun, result.success)

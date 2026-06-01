@@ -186,15 +186,21 @@ class Analyzer:
         edge_1x2: float = 0.03,
         edge_ou:  float = 0.03,
         force_retrain: bool = False,
+        progress_cb=None,
     ) -> pd.DataFrame:
 
+        def _cb(msg: str) -> None:
+            if progress_cb:
+                progress_cb(msg)
+
+        _cb("Construyendo dataset de entrenamiento…")
         train_all = build_training_frame(self.hist_by_div)
         if train_all.empty:
             raise ValueError("No se pudo construir el dataset de entrenamiento.")
 
-        # Entrenar solo si es necesario
+        # Entrenar ML solo si es necesario
         if force_retrain or not self.model._fitted:
-            logger.info("Entrenando modelo ML...")
+            _cb("Entrenando ML (RandomForest + GradientBoosting)…")
             self.model.fit(train_all)
             self.model.save(MODEL_FILE)
 
@@ -202,8 +208,10 @@ class Analyzer:
         all_hist = pd.concat(list(self.hist_by_div.values()), ignore_index=True) \
                    if self.hist_by_div else pd.DataFrame()
         if len(all_hist) >= 50:
-            logger.info("Entrenando Dixon-Coles...")
+            _cb("Entrenando Dixon-Coles Poisson…")
             self.dc_model.fit(all_hist)
+
+        _cb("Generando predicciones…")
 
         self.diagnostics = [
             f"Entrenado con {self.model.metrics['train_samples']} muestras",
