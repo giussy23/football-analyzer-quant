@@ -23,6 +23,7 @@ from .core.config import (
 )
 from .core.data import fetch_csv
 from .core.storage import Storage
+from .ui.views.accumulator import AccumulatorView
 from .ui.views.analysis import AnalysisView
 from .ui.views.portfolio import ExecutionView, PortfolioView
 from .ui.views.settings import SettingsView
@@ -134,10 +135,11 @@ class PremiumApp(ctk.CTk):
 
         self._nav_btns: dict[str, ctk.CTkButton] = {}
         nav_items = [
-            ("analysis",  "Trading Desk",  self.show_analysis_view),
-            ("execution", "Manual Slip",   self.show_execution_view),
-            ("portfolio", "Portfolio",     self.show_portfolio_view),
-            ("settings",  "Strategy",      self.show_settings_view),
+            ("analysis",     "Trading Desk",   self.show_analysis_view),
+            ("accumulator",  "⚡ Combinadas IA", self.show_accumulator_view),
+            ("execution",    "Manual Slip",    self.show_execution_view),
+            ("portfolio",    "Portfolio",      self.show_portfolio_view),
+            ("settings",     "Strategy",       self.show_settings_view),
         ]
         for key, label, cmd in nav_items:
             btn = ctk.CTkButton(
@@ -178,22 +180,24 @@ class PremiumApp(ctk.CTk):
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(0, weight=1)
 
-        self.analysis_view  = AnalysisView(content, self)
-        self.execution_view = ExecutionView(content, self)
-        self.portfolio_view = PortfolioView(content, self)
-        self.settings_view  = SettingsView(content, self)
+        self.analysis_view    = AnalysisView(content, self)
+        self.accumulator_view = AccumulatorView(content, self)
+        self.execution_view   = ExecutionView(content, self)
+        self.portfolio_view   = PortfolioView(content, self)
+        self.settings_view    = SettingsView(content, self)
 
-        for view in [self.analysis_view, self.execution_view,
-                     self.portfolio_view, self.settings_view]:
+        for view in [self.analysis_view, self.accumulator_view,
+                     self.execution_view, self.portfolio_view, self.settings_view]:
             view.grid(row=0, column=0, sticky="nsew")
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
     _NAV_META = {
-        "analysis":  ("Trading Desk",  "Top picks, mercado, tabla principal y ranking"),
-        "execution": ("Manual Slip",   "Simulación manual 1X2, cuota, stake y retorno"),
-        "portfolio": ("Portfolio",     "Historial de combinadas, ROI y liquidación"),
-        "settings":  ("Strategy",      "Telegram, combo builder y configuración"),
+        "analysis":    ("Trading Desk",   "Top picks, mercado, tabla principal y ranking"),
+        "accumulator": ("Combinadas IA",  "Combinadas 2-4 legs generadas por el modelo IA"),
+        "execution":   ("Manual Slip",    "Simulación manual 1X2, cuota, stake y retorno"),
+        "portfolio":   ("Portfolio",      "Historial de combinadas, ROI y liquidación"),
+        "settings":    ("Strategy",       "Telegram, combo builder y configuración"),
     }
 
     def _set_nav(self, active: str) -> None:
@@ -204,12 +208,15 @@ class PremiumApp(ctk.CTk):
         self.view_hint.configure(text=hint)
 
     def _hide_all(self) -> None:
-        for v in [self.analysis_view, self.execution_view,
-                  self.portfolio_view, self.settings_view]:
+        for v in [self.analysis_view, self.accumulator_view,
+                  self.execution_view, self.portfolio_view, self.settings_view]:
             v.grid_remove()
 
     def show_analysis_view(self):
         self._hide_all(); self.analysis_view.grid(); self._set_nav("analysis")
+
+    def show_accumulator_view(self):
+        self._hide_all(); self.accumulator_view.grid(); self._set_nav("accumulator")
 
     def show_execution_view(self):
         self._hide_all(); self.execution_view.grid(); self._set_nav("execution")
@@ -278,6 +285,7 @@ class PremiumApp(ctk.CTk):
             self._fill_summary()
             self._refresh_combo()
             self._refresh_simulator_matches()
+            self.accumulator_view.refresh(self.results)
 
             self.analysis_view.update_status("✓ Completado")
             logger.info("Análisis completado: %d fixtures", len(self.results))
