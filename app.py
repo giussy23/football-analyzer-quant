@@ -363,9 +363,7 @@ class PremiumApp(ctk.CTk):
                         )
                 self.backtest_summary = analyzer.backtest_summary
                 self.diagnostics      = analyzer.diagnostics
-            self.backtest_summary = analyzer.backtest_summary
-            self.diagnostics      = analyzer.diagnostics
-            self.filtered         = self.results.copy()
+            self.filtered = self.results.copy()
 
             self.apply_filters()
             self._fill_summary()
