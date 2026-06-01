@@ -38,6 +38,13 @@ class Storage:
                     payload_json TEXT
                 )
             """)
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS sim_history (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at   TEXT,
+                    payload_json TEXT
+                )
+            """)
             con.commit()
         logger.debug("Base de datos inicializada en %s", self.db_file)
 
@@ -103,6 +110,49 @@ class Storage:
                     "INSERT INTO combo_history(created_at, payload_json) VALUES(?, ?)",
                     (payload.get("timestamp"), json.dumps(payload, ensure_ascii=False)),
                 )
+            con.commit()
+
+    # ── Simulation history ─────────────────────────────────────────────────────
+
+    def save_sim(self, payload: dict) -> int:
+        """Guarda una simulación y devuelve su ID de base de datos."""
+        with self._connect() as con:
+            cur = con.execute(
+                "INSERT INTO sim_history(created_at, payload_json) VALUES(?, ?)",
+                (payload.get("timestamp"), json.dumps(payload, ensure_ascii=False)),
+            )
+            con.commit()
+            return cur.lastrowid
+
+    def load_sims(self, limit: int = 200) -> list[dict]:
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT id, payload_json FROM sim_history ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        result = []
+        for db_id, json_str in rows:
+            d = json.loads(json_str)
+            d["_db_id"] = db_id
+            result.append(d)
+        return result
+
+    def update_sim_status(self, db_id: int, status: str, pnl: float) -> None:
+        """Marca una simulación como WIN o LOSS y actualiza el PnL."""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT payload_json FROM sim_history WHERE id = ?", (db_id,)
+            ).fetchone()
+            if not row:
+                return
+            d = json.loads(row[0])
+            d["status"]     = status
+            d["pnl"]        = round(pnl, 2)
+            d["settled_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            con.execute(
+                "UPDATE sim_history SET payload_json = ? WHERE id = ?",
+                (json.dumps(d, ensure_ascii=False), db_id),
+            )
             con.commit()
 
     def clear_combos(self) -> None:

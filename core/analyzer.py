@@ -308,6 +308,12 @@ class Analyzer:
                     "away_team":       r.away_team,
                     "pick":            market,
                     "odds":            round(odds, 2)         if odds        is not None else None,
+                    # Cuotas brutas de mercado para el simulador
+                    "B365H":           r.get("B365H"),
+                    "B365D":           r.get("B365D"),
+                    "B365A":           r.get("B365A"),
+                    "B365O25":         r.get("B365O25"),
+                    "B365U25":         r.get("B365U25"),
                     "edge":            round(edge, 4)         if edge        is not None else None,
                     "model_prob":      round(model_prob, 4)   if model_prob  is not None else None,
                     "fair_prob":       round(fair_prob, 4)    if fair_prob   is not None else None,
