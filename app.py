@@ -173,7 +173,41 @@ class PremiumApp(ctk.CTk):
             command=self.run_analysis,
             fg_color=ACCENT, hover_color=ACCENT_2, height=42,
         )
-        self._run_btn.pack(fill="x", padx=14, pady=(16, 6))
+        self._run_btn.pack(fill="x", padx=14, pady=(16, 4))
+
+        # ── Barra de progreso ──────────────────────────────────────────────
+        prog_card = ctk.CTkFrame(
+            sidebar, fg_color="#0d1a2e", corner_radius=10,
+            border_color="#1e2b44", border_width=1,
+        )
+        prog_card.pack(fill="x", padx=14, pady=(0, 6))
+        prog_card.grid_columnconfigure(0, weight=1)
+
+        prog_header = ctk.CTkFrame(prog_card, fg_color="transparent")
+        prog_header.pack(fill="x", padx=10, pady=(8, 4))
+        prog_header.grid_columnconfigure(0, weight=1)
+
+        self._prog_lbl = ctk.CTkLabel(
+            prog_header, text="Listo",
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+            anchor="w",
+        )
+        self._prog_lbl.pack(side="left", fill="x", expand=True)
+
+        self._prog_pct = ctk.CTkLabel(
+            prog_header, text="",
+            text_color=ACCENT, font=ctk.CTkFont(size=10, weight="bold"),
+            width=34, anchor="e",
+        )
+        self._prog_pct.pack(side="right")
+
+        self._progress_bar = ctk.CTkProgressBar(
+            prog_card, height=8, corner_radius=4,
+            fg_color="#1e2b44", progress_color=ACCENT,
+            mode="determinate",
+        )
+        self._progress_bar.set(0)
+        self._progress_bar.pack(fill="x", padx=10, pady=(0, 10))
 
         # ── Contador de peticiones API ─────────────────────────────────────
         api_card = ctk.CTkFrame(
@@ -325,6 +359,24 @@ class PremiumApp(ctk.CTk):
         """Actualización de estado thread-safe."""
         self._ui(lambda m=msg: self.analysis_view.update_status(m))
 
+    def _set_progress(self, value: float, label: str = "") -> None:
+        """
+        Actualiza la barra de progreso desde cualquier hilo.
+        value: 0.0 – 1.0
+        """
+        def _update(v=value, l=label):
+            self._progress_bar.set(v)
+            pct = int(v * 100)
+            self._prog_pct.configure(
+                text=f"{pct}%",
+                text_color="#00c853" if v >= 1.0 else ACCENT,
+            )
+            self._prog_lbl.configure(
+                text=l or ("✓ Completado" if v >= 1.0 else ""),
+                text_color="#00c853" if v >= 1.0 else MUTED,
+            )
+        self._ui(_update)
+
     def _set_run_btn(self, enabled: bool, text: str = "▶  Run Analysis") -> None:
         """Activa o desactiva el botón Run Analysis (hilo principal)."""
         self._ui(lambda: self._run_btn.configure(
@@ -335,12 +387,25 @@ class PremiumApp(ctk.CTk):
     def _analysis_worker(self, selected: list) -> None:
         """Todo el trabajo pesado en hilo de fondo. Sin tocar widgets directamente."""
         try:
+            # ── Calcular pasos y pesos ────────────────────────────────────────
+            # Pesos aproximados al tiempo real de cada fase:
+            #   CSV por liga: 1 | Fixtures: 1 | ML: 4 | DC: 3 | Análisis: 2 | Final: 1
+            n_csv  = sum(1 for n in selected if LEAGUE_MAP[n][1])
+            total_weight = n_csv * 1.0 + 1 + 4 + 3 + 2 + 1
+            done = 0.0
+
+            def step(w: float, label: str) -> None:
+                nonlocal done
+                done += w
+                self._set_progress(min(done / total_weight, 0.99), label)
+                self._set_status(label)
+
             # ── Descargar histórico ───────────────────────────────────────────
             hist: dict = {}
             for name in selected:
                 div, csv_url, _ = LEAGUE_MAP[name]
                 if csv_url:
-                    self._set_status(f"Descargando {name}…")
+                    step(1.0, f"Descargando {name}…")
                     hist[div] = fetch_csv(csv_url)
 
             # ── Fixtures ─────────────────────────────────────────────────────
@@ -348,7 +413,7 @@ class PremiumApp(ctk.CTk):
             use_odds_api = self.use_odds_api.get() and bool(odds_api_key)
 
             if use_odds_api:
-                self._set_status("⚡ Cuotas en tiempo real (The Odds API)…")
+                step(1.0, "⚡ Cuotas en tiempo real (The Odds API)…")
                 div_codes = [LEAGUE_MAP[n][0] for n in selected]
                 fixtures, remaining = fetch_odds_fixtures(odds_api_key, div_codes)
                 self._ui(lambda r=remaining: self._store_remaining(r))
@@ -356,7 +421,7 @@ class PremiumApp(ctk.CTk):
                     self._set_status("⚠ Sin fixtures de Odds API, usando football-data.co.uk…")
                     fixtures = fetch_csv(FIXTURES_URL)
             else:
-                self._set_status("Descargando fixtures…")
+                step(1.0, "Descargando fixtures…")
                 fixtures = fetch_csv(FIXTURES_URL)
 
             # ── Separar ligas con/sin histórico ───────────────────────────────
@@ -364,6 +429,7 @@ class PremiumApp(ctk.CTk):
             divs_odds_only    = [LEAGUE_MAP[n][0] for n in selected if not LEAGUE_MAP[n][1]]
 
             if divs_odds_only and not divs_with_history:
+                step(4 + 3 + 2, "Cargando cuotas en tiempo real…")
                 from .core.data import prepare_fixtures as _pf
                 results          = self._build_odds_only_df(_pf(fixtures), divs_odds_only)
                 backtest_summary = {}
@@ -373,16 +439,17 @@ class PremiumApp(ctk.CTk):
                     f"Fixtures cargados: {len(results)}",
                 ]
             else:
-                self._set_status("Entrenando modelo ML…")
+                step(4.0, "Entrenando modelo ML (RandomForest + GradBoost)…")
                 analyzer = Analyzer(hist, fixtures)
 
-                self._set_status("Entrenando Dixon-Coles Poisson…")
+                step(3.0, "Entrenando Dixon-Coles Poisson…")
                 results = analyzer.run(
                     divs_with_history,
                     float(self.edge1.get()),
                     float(self.edge2.get()),
                 )
 
+                step(2.0, "Calculando picks, edge y combinadas…")
                 if divs_odds_only:
                     from .core.data import prepare_fixtures as _pf
                     odds_df = self._build_odds_only_df(_pf(fixtures), divs_odds_only)
@@ -391,6 +458,8 @@ class PremiumApp(ctk.CTk):
 
                 backtest_summary = analyzer.backtest_summary
                 diagnostics      = analyzer.diagnostics
+
+            step(1.0, "Actualizando vistas…")
 
             # ── Actualizar UI en hilo principal ───────────────────────────────
             self._ui(lambda r=results, b=backtest_summary, d=diagnostics:
@@ -425,6 +494,7 @@ class PremiumApp(ctk.CTk):
 
         self.analysis_view.update_status(f"✓ Completado — {len(results)} fixtures")
         logger.info("Análisis completado: %d fixtures", len(results))
+        self._set_progress(1.0, "✓ Completado")
 
         self._analysis_running = False
         self._set_run_btn(enabled=True)
@@ -446,6 +516,7 @@ class PremiumApp(ctk.CTk):
         """Llamado en el hilo principal si el análisis falla."""
         messagebox.showerror("Error en análisis", str(exc))
         self.analysis_view.update_status("✗ Error")
+        self._set_progress(0.0, "✗ Error")
         self._analysis_running = False
         self._set_run_btn(enabled=True)
 
