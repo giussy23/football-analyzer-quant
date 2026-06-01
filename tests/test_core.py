@@ -74,8 +74,8 @@ class TestFairProbs:
 # ── overround ─────────────────────────────────────────────────────────────────
 
 class TestOverround:
-    def test_fair_book(self):
-        """Cuotas justas → overround ≈ 1.0."""
+    def test_typical_bookmaker_margin(self):
+        """Cuotas de casa típicas → overround > 1.0 (margen del operador)."""
         or_ = overround(2.0, 3.0, 3.0)  # sum(1/p) = 0.5+0.333+0.333 = 1.166...
         assert or_ > 1.0
 
