@@ -22,6 +22,7 @@ from .core.config import (
     FIXTURES_URL, LEAGUE_MAP, MUTED, TEXT,
 )
 from .core.data import fetch_csv
+from .core.odds_api import fetch_odds_fixtures
 from .core.storage import Storage
 from .ui.views.accumulator import AccumulatorView
 from .ui.views.analysis import AnalysisView
@@ -67,6 +68,7 @@ class PremiumApp(ctk.CTk):
         self.only_green  = _bv("only_green",  "1")
         self.only_picks  = _bv("only_picks",  "0")
 
+        self.use_odds_api            = _bv("use_odds_api",            "0")
         self.telegram_enabled        = _bv("telegram_enabled",        "0")
         self.send_combo_enabled      = _bv("send_combo_enabled",      "1")
         self.auto_send_after_analysis = _bv("auto_send_after_analysis", "0")
@@ -242,6 +244,8 @@ class PremiumApp(ctk.CTk):
             "telegram_enabled":         int(self.telegram_enabled.get()),
             "send_combo_enabled":       int(self.send_combo_enabled.get()),
             "auto_send_after_analysis": int(self.auto_send_after_analysis.get()),
+            "odds_api_key":             self.settings_view.get_odds_api_key(),
+            "use_odds_api":             int(self.use_odds_api.get()),
             "only_green":               int(self.only_green.get()),
             "only_picks":               int(self.only_picks.get()),
             "combo_size":               self.combo_size.get(),
@@ -266,7 +270,22 @@ class PremiumApp(ctk.CTk):
                 LEAGUE_MAP[name][0]: fetch_csv(LEAGUE_MAP[name][1])
                 for name in selected
             }
-            fixtures = fetch_csv(FIXTURES_URL)
+
+            # ── Fuente de fixtures ────────────────────────────────────────────
+            odds_api_key  = self.storage.get_setting("odds_api_key", "")
+            use_odds_api  = self.use_odds_api.get() and bool(odds_api_key)
+
+            if use_odds_api:
+                self.analysis_view.update_status("⚡ Descargando cuotas en tiempo real (The Odds API)...")
+                self.update_idletasks()
+                div_codes = [LEAGUE_MAP[n][0] for n in selected]
+                fixtures  = fetch_odds_fixtures(odds_api_key, div_codes)
+                if fixtures.empty:
+                    self.analysis_view.update_status("⚠ Sin fixtures de Odds API, usando football-data.co.uk...")
+                    self.update_idletasks()
+                    fixtures = fetch_csv(FIXTURES_URL)
+            else:
+                fixtures = fetch_csv(FIXTURES_URL)
 
             self.analysis_view.update_status("Entrenando modelo...")
             self.update_idletasks()
