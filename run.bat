@@ -1,4 +1,6 @@
 @echo off
+cd /d "%~dp0"
+set PYTHONPATH=%~dp0..
 chcp 65001 >nul
 title Football Analyzer Quant Pro v10.0
 
