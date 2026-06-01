@@ -266,10 +266,12 @@ class PremiumApp(ctk.CTk):
             self.analysis_view.update_status("Descargando datos...")
             self.update_idletasks()
 
-            hist = {
-                LEAGUE_MAP[name][0]: fetch_csv(LEAGUE_MAP[name][1])
-                for name in selected
-            }
+            # Descargar histórico solo para ligas que lo tienen (csv_url != None)
+            hist = {}
+            for name in selected:
+                div, csv_url, _ = LEAGUE_MAP[name]
+                if csv_url:
+                    hist[div] = fetch_csv(csv_url)
 
             # ── Fuente de fixtures ────────────────────────────────────────────
             odds_api_key  = self.storage.get_setting("odds_api_key", "")
@@ -287,15 +289,42 @@ class PremiumApp(ctk.CTk):
             else:
                 fixtures = fetch_csv(FIXTURES_URL)
 
-            self.analysis_view.update_status("Entrenando modelo...")
-            self.update_idletasks()
+            # Para ligas sin histórico (Mundial, Libertadores…) mostramos
+            # solo cuotas en tiempo real sin predicción del modelo IA
+            divs_with_history = [LEAGUE_MAP[n][0] for n in selected if LEAGUE_MAP[n][1]]
+            divs_odds_only    = [LEAGUE_MAP[n][0] for n in selected if not LEAGUE_MAP[n][1]]
 
-            analyzer = Analyzer(hist, fixtures)
-            self.results = analyzer.run(
-                [LEAGUE_MAP[n][0] for n in selected],
-                float(self.edge1.get()),
-                float(self.edge2.get()),
-            )
+            if divs_odds_only and not divs_with_history:
+                # Solo ligas sin histórico → mostrar cuotas directamente
+                from .core.data import prepare_fixtures
+                self.results = self._build_odds_only_df(prepare_fixtures(fixtures), divs_odds_only)
+                self.backtest_summary = {}
+                self.diagnostics = [
+                    "Modo cuotas en tiempo real (sin modelo IA)",
+                    f"Ligas: {', '.join(divs_odds_only)}",
+                    f"Fixtures cargados: {len(self.results)}",
+                ]
+            else:
+                self.analysis_view.update_status("Entrenando modelo...")
+                self.update_idletasks()
+                analyzer = Analyzer(hist, fixtures)
+                self.results = analyzer.run(
+                    divs_with_history,
+                    float(self.edge1.get()),
+                    float(self.edge2.get()),
+                )
+                # Añadir fixtures de ligas sin histórico (solo cuotas)
+                if divs_odds_only:
+                    from .core.data import prepare_fixtures
+                    odds_df = self._build_odds_only_df(
+                        prepare_fixtures(fixtures), divs_odds_only
+                    )
+                    if not odds_df.empty:
+                        self.results = pd.concat(
+                            [self.results, odds_df], ignore_index=True
+                        )
+                self.backtest_summary = analyzer.backtest_summary
+                self.diagnostics      = analyzer.diagnostics
             self.backtest_summary = analyzer.backtest_summary
             self.diagnostics      = analyzer.diagnostics
             self.filtered         = self.results.copy()
@@ -326,6 +355,62 @@ class PremiumApp(ctk.CTk):
             logger.exception("Error en run_analysis")
             messagebox.showerror("Error", str(exc))
             self.analysis_view.update_status("✗ Error")
+
+    # ── Odds-only mode (ligas sin histórico: Mundial, Libertadores…) ─────────
+
+    def _build_odds_only_df(self, fixtures: pd.DataFrame, div_codes: list) -> pd.DataFrame:
+        """
+        Construye un DataFrame de resultados básico para ligas sin datos históricos.
+        Muestra cuotas en tiempo real sin predicción del modelo IA.
+        """
+        if fixtures.empty:
+            return pd.DataFrame()
+
+        fx = fixtures[fixtures["div"].str.upper().isin([d.upper() for d in div_codes])].copy()
+        if fx.empty:
+            return pd.DataFrame()
+
+        rows = []
+        for _, r in fx.iterrows():
+            b365h = r.get("B365H")
+            b365d = r.get("B365D")
+            b365a = r.get("B365A")
+            has_odds = pd.notna(b365h) and pd.notna(b365d) and pd.notna(b365a)
+            rows.append({
+                "date":              r.get("date"),
+                "time":              r.get("time", ""),
+                "league":            r.get("div", ""),
+                "home_team":         r.get("home_team", ""),
+                "away_team":         r.get("away_team", ""),
+                "pick":              "NO BET",
+                "odds":              None,
+                "edge":              None,
+                "model_prob":        None,
+                "fair_prob":         None,
+                "open_fair_prob":    None,
+                "close_fair_prob":   None,
+                "clv":               None,
+                "market_move":       None,
+                "open_overround":    None,
+                "close_overround":   None,
+                "market_entropy":    None,
+                "ev":                None,
+                "expected_goals":    None,
+                "p_home":            round(1 / float(b365h), 4) if has_odds else None,
+                "p_draw":            round(1 / float(b365d), 4) if has_odds else None,
+                "p_away":            round(1 / float(b365a), 4) if has_odds else None,
+                "p_over25":          None,
+                "reliability_score": 0,
+                "risk_light":        "ROJO",
+                "no_bet":            "SI",
+                "bankroll_pct":      0.0,
+                "stake_units":       0.0,
+                "analysis":          (
+                    f"Cuotas: {b365h}/{b365d}/{b365a} — Sin modelo IA (sin histórico)"
+                    if has_odds else "Sin cuotas disponibles"
+                ),
+            })
+        return pd.DataFrame(rows)
 
     # ── Filters ───────────────────────────────────────────────────────────────
 

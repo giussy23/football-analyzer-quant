@@ -23,6 +23,7 @@ BASE_URL = "https://api.the-odds-api.com/v4"
 # ── Mapeo div-code → sport_key de The Odds API ────────────────────────────────
 
 DIV_TO_SPORT_KEY: dict[str, str] = {
+    # ── Ligas europeas ────────────────────────────────────────────────────────
     "E0":  "soccer_epl",
     "E1":  "soccer_efl_champ",
     "SP1": "soccer_spain_la_liga",
@@ -32,6 +33,10 @@ DIV_TO_SPORT_KEY: dict[str, str] = {
     "F1":  "soccer_france_ligue_one",
     "P1":  "soccer_portugal_primeira_liga",
     "N1":  "soccer_netherlands_eredivisie",
+    # ── Competiciones internacionales ─────────────────────────────────────────
+    "WC":  "soccer_fifa_world_cup",
+    "LIB": "soccer_conmebol_copa_libertadores",
+    "CSU": "soccer_conmebol_copa_sudamericana",
 }
 
 
