@@ -413,6 +413,8 @@ class PremiumApp(ctk.CTk):
             b365d = r.get("B365D")
             b365a = r.get("B365A")
             has_odds = pd.notna(b365h) and pd.notna(b365d) and pd.notna(b365a)
+            b365o25 = r.get("B365O25")
+            b365u25 = r.get("B365U25")
             rows.append({
                 "date":              r.get("date"),
                 "time":              r.get("time", ""),
@@ -442,7 +444,13 @@ class PremiumApp(ctk.CTk):
                 "no_bet":            "SI",
                 "bankroll_pct":      0.0,
                 "stake_units":       0.0,
-                "analysis":          (
+                # ── Cuotas brutas para el simulador ───────────────────────────
+                "B365H":   float(b365h)   if has_odds else None,
+                "B365D":   float(b365d)   if has_odds else None,
+                "B365A":   float(b365a)   if has_odds else None,
+                "B365O25": float(b365o25) if pd.notna(b365o25) else None,
+                "B365U25": float(b365u25) if pd.notna(b365u25) else None,
+                "analysis": (
                     f"Cuotas: {b365h}/{b365d}/{b365a} — Sin modelo IA (sin histórico)"
                     if has_odds else "Sin cuotas disponibles"
                 ),

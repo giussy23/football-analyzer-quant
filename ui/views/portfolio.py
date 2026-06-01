@@ -121,7 +121,6 @@ class ExecutionView(ctk.CTkScrollableFrame):
             values=["Sin resultados todavía"],
             fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
             button_color=ACCENT, button_hover_color=ACCENT_2,
-            command=lambda _: self.app.auto_fill_sim_odds(),
         )
         self.match_menu.pack(fill="x", pady=(4, 10))
 
@@ -133,8 +132,15 @@ class ExecutionView(ctk.CTkScrollableFrame):
             values=["1", "X", "2", "OVER2.5", "UNDER2.5"],
             fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
             button_color=ACCENT, button_hover_color=ACCENT_2,
-            command=lambda _: self.app.auto_fill_sim_odds(),
         ).pack(fill="x", pady=(4, 10))
+
+        # trace_add dispara en CUALQUIER cambio (clic, programático, teclado)
+        self.app.sim_match_var.trace_add(
+            "write", lambda *_: self.app.after(50, self.app.auto_fill_sim_odds)
+        )
+        self.app.manual_pick_var.trace_add(
+            "write", lambda *_: self.app.after(50, self.app.auto_fill_sim_odds)
+        )
 
         # Cuota (auto-rellenada)
         cuota_row = ctk.CTkFrame(sb, fg_color="transparent")
