@@ -52,7 +52,7 @@ class PremiumApp(ctk.CTk):
         self.backtest_summary: dict         = {}
         self.diagnostics:      list[str]    = []
         self.history:          list[dict]   = self.storage.load_combos()
-        self.bet_sim_history:  list[dict]   = []
+        self.bet_sim_history:  list[dict]   = self.storage.load_sims()
 
         # ── Settings vars ─────────────────────────────────────────────────────
         def _sv(key: str, default: str) -> tk.StringVar:
@@ -630,6 +630,47 @@ class PremiumApp(ctk.CTk):
         self.history = self.storage.load_combos()
         self._refresh_portfolio()
 
+    # ── Sim history settlement ────────────────────────────────────────────────
+
+    def settle_sim_selected(self, result: str) -> None:
+        """Liquida la fila seleccionada en el Treeview del historial."""
+        tree = self.execution_view.sim_tree
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Historial", "Selecciona una fila para liquidar.")
+            return
+
+        iid = selection[0]
+        try:
+            db_id = int(iid)
+        except ValueError:
+            messagebox.showerror("Historial", "ID de simulación inválido.")
+            return
+
+        # Buscar en memoria
+        sim = next((s for s in self.bet_sim_history if s.get("_db_id") == db_id), None)
+        if not sim:
+            messagebox.showwarning("Historial", "Simulación no encontrada.")
+            return
+        if sim.get("status") != "PENDING":
+            messagebox.showinfo("Historial", f"Ya está liquidada como {sim['status']}.")
+            return
+
+        stake = float(sim.get("stake", 0))
+        odds  = float(sim.get("odds",  0))
+        pnl   = round(stake * (odds - 1), 2) if result == "WIN" else round(-stake, 2)
+
+        # Actualizar DB y memoria
+        self.storage.update_sim_status(db_id, result, pnl)
+        sim["status"] = result
+        sim["pnl"]    = pnl
+
+        self.execution_view.refresh_history_panel(self.bet_sim_history)
+        self.execution_view.refresh_stats(self.bet_sim_history)
+        self.execution_view.settle_lbl.configure(
+            text=f"✓  Liquidada como {result}  (PnL {pnl:+.2f} €)"
+        )
+
     # ── Simulator ─────────────────────────────────────────────────────────────
 
     def _future_results_only(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -686,6 +727,44 @@ class PremiumApp(ctk.CTk):
         if pd.notna(row.get("odds")):
             self.manual_odds_var.set(str(row["odds"]))
 
+    def auto_fill_sim_odds(self) -> None:
+        """Auto-rellena la cuota al cambiar partido o mercado."""
+        df = self._future_results_only(self.results)
+        if df is None or df.empty:
+            return
+
+        selected = self.sim_match_var.get().strip()
+        pick     = self.manual_pick_var.get().strip()
+
+        for _, row in df.iterrows():
+            label = (
+                f"{row.get('date','')} | {row.get('league','')} | "
+                f"{row.get('home_team','')} vs {row.get('away_team','')}"
+            )
+            if label != selected:
+                continue
+
+            # Mapa mercado → cuota
+            odds_map = {
+                "1":       row.get("B365H"),
+                "X":       row.get("B365D"),
+                "2":       row.get("B365A"),
+                "OVER2.5": row.get("B365O25"),
+                "UNDER2.5":row.get("B365U25"),
+            }
+            # Si el pick coincide con la recomendación del análisis, usa la cuota directa
+            if str(row.get("pick", "")) == pick and pd.notna(row.get("odds")):
+                odd = float(row["odds"])
+            else:
+                raw = odds_map.get(pick)
+                odd = float(raw) if raw is not None and pd.notna(raw) else None
+
+            if odd and odd > 1:
+                self.manual_odds_var.set(f"{odd:.2f}")
+                # Actualiza preview automáticamente
+                self.update_manual_quote_preview()
+            break
+
     def update_manual_quote_preview(self) -> None:
         try:
             odds  = float(self.manual_odds_var.get())
@@ -738,21 +817,24 @@ class PremiumApp(ctk.CTk):
         profit  = round((odds - 1) * stake, 2)
         pnl     = 0.0 if status == "PENDING" else (profit if status == "WIN" else round(-stake, 2))
 
-        self.bet_sim_history.insert(0, {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "league":    chosen.get("league", ""),
-            "match":     f"{chosen.get('home_team','')} vs {chosen.get('away_team','')}",
-            "pick":      self.manual_pick_var.get().strip(),
-            "odds":      odds,
-            "stake":     round(stake, 2),
+        payload = {
+            "timestamp":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "league":      chosen.get("league", ""),
+            "match":       f"{chosen.get('home_team','')} vs {chosen.get('away_team','')}",
+            "pick":        self.manual_pick_var.get().strip(),
+            "odds":        odds,
+            "stake":       round(stake, 2),
             "gross_return": round(stake * odds, 2),
             "net_profit":   profit,
             "status":       status,
             "pnl":          pnl,
-        })
+        }
+        db_id = self.storage.save_sim(payload)
+        payload["_db_id"] = db_id
+        self.bet_sim_history.insert(0, payload)
         self.execution_view.refresh_history_panel(self.bet_sim_history)
         self.execution_view.refresh_stats(self.bet_sim_history)
-        messagebox.showinfo("Simulator", "Simulación guardada.")
+        messagebox.showinfo("Simulator", "Apuesta guardada.")
 
     # ── Telegram ──────────────────────────────────────────────────────────────
 
