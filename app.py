@@ -5,6 +5,7 @@ app.py — Clase principal PremiumApp: orquesta vistas, lógica y datos.
 from __future__ import annotations
 
 import logging
+import threading
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
@@ -54,7 +55,8 @@ class PremiumApp(ctk.CTk):
         self.diagnostics:      list[str]    = []
         self.history:          list[dict]   = self.storage.load_combos()
         self.bet_sim_history:  list[dict]   = self.storage.load_sims()
-        self.odds_api_remaining: Optional[str] = None
+        self.odds_api_remaining:  Optional[str] = None
+        self._analysis_running:   bool          = False
 
         # ── Settings vars ─────────────────────────────────────────────────────
         def _sv(key: str, default: str) -> tk.StringVar:
@@ -166,11 +168,12 @@ class PremiumApp(ctk.CTk):
             btn.pack(fill="x", padx=14, pady=6)
             self._nav_btns[key] = btn
 
-        ctk.CTkButton(
+        self._run_btn = ctk.CTkButton(
             sidebar, text="▶  Run Analysis",
             command=self.run_analysis,
             fg_color=ACCENT, hover_color=ACCENT_2, height=42,
-        ).pack(fill="x", padx=14, pady=(16, 6))
+        )
+        self._run_btn.pack(fill="x", padx=14, pady=(16, 6))
 
         # ── Contador de peticiones API ─────────────────────────────────────
         api_card = ctk.CTkFrame(
@@ -291,107 +294,160 @@ class PremiumApp(ctk.CTk):
 
     # ── Main analysis pipeline ────────────────────────────────────────────────
 
+    # ── Analysis pipeline (threaded) ──────────────────────────────────────────
+
     def run_analysis(self) -> None:
+        """Punto de entrada — hilo principal. Lanza el worker en segundo plano."""
+        if self._analysis_running:
+            return  # evitar doble click
+
+        self.save_settings()
+        selected = [k for k, v in self.analysis_view.league_vars.items() if v.get()]
+        if not selected:
+            messagebox.showwarning("Aviso", "Selecciona al menos una liga.")
+            return
+
+        self._analysis_running = True
+        self._set_run_btn(enabled=False, text="⏳  Analizando…")
+        self.analysis_view.update_status("Iniciando…")
+
+        threading.Thread(
+            target=self._analysis_worker,
+            args=(selected,),
+            daemon=True,
+        ).start()
+
+    def _ui(self, fn) -> None:
+        """Ejecuta fn en el hilo principal de tkinter de forma segura."""
+        self.after(0, fn)
+
+    def _set_status(self, msg: str) -> None:
+        """Actualización de estado thread-safe."""
+        self._ui(lambda m=msg: self.analysis_view.update_status(m))
+
+    def _set_run_btn(self, enabled: bool, text: str = "▶  Run Analysis") -> None:
+        """Activa o desactiva el botón Run Analysis (hilo principal)."""
+        self._ui(lambda: self._run_btn.configure(
+            state="normal" if enabled else "disabled",
+            text=text,
+        ))
+
+    def _analysis_worker(self, selected: list) -> None:
+        """Todo el trabajo pesado en hilo de fondo. Sin tocar widgets directamente."""
         try:
-            self.save_settings()
-
-            selected = [k for k, v in self.analysis_view.league_vars.items() if v.get()]
-            if not selected:
-                raise ValueError("Selecciona al menos una liga.")
-
-            self.analysis_view.update_status("Descargando datos...")
-            self.update_idletasks()
-
-            # Descargar histórico solo para ligas que lo tienen (csv_url != None)
-            hist = {}
+            # ── Descargar histórico ───────────────────────────────────────────
+            hist: dict = {}
             for name in selected:
                 div, csv_url, _ = LEAGUE_MAP[name]
                 if csv_url:
+                    self._set_status(f"Descargando {name}…")
                     hist[div] = fetch_csv(csv_url)
 
-            # ── Fuente de fixtures ────────────────────────────────────────────
-            odds_api_key  = self.storage.get_setting("odds_api_key", "")
-            use_odds_api  = self.use_odds_api.get() and bool(odds_api_key)
+            # ── Fixtures ─────────────────────────────────────────────────────
+            odds_api_key = self.storage.get_setting("odds_api_key", "")
+            use_odds_api = self.use_odds_api.get() and bool(odds_api_key)
 
             if use_odds_api:
-                self.analysis_view.update_status("⚡ Descargando cuotas en tiempo real (The Odds API)...")
-                self.update_idletasks()
+                self._set_status("⚡ Cuotas en tiempo real (The Odds API)…")
                 div_codes = [LEAGUE_MAP[n][0] for n in selected]
                 fixtures, remaining = fetch_odds_fixtures(odds_api_key, div_codes)
-                self.odds_api_remaining = remaining
-                self._update_api_counter()
+                self._ui(lambda r=remaining: self._store_remaining(r))
                 if fixtures.empty:
-                    self.analysis_view.update_status("⚠ Sin fixtures de Odds API, usando football-data.co.uk...")
-                    self.update_idletasks()
+                    self._set_status("⚠ Sin fixtures de Odds API, usando football-data.co.uk…")
                     fixtures = fetch_csv(FIXTURES_URL)
             else:
+                self._set_status("Descargando fixtures…")
                 fixtures = fetch_csv(FIXTURES_URL)
 
-            # Para ligas sin histórico (Mundial, Libertadores…) mostramos
-            # solo cuotas en tiempo real sin predicción del modelo IA
+            # ── Separar ligas con/sin histórico ───────────────────────────────
             divs_with_history = [LEAGUE_MAP[n][0] for n in selected if LEAGUE_MAP[n][1]]
             divs_odds_only    = [LEAGUE_MAP[n][0] for n in selected if not LEAGUE_MAP[n][1]]
 
             if divs_odds_only and not divs_with_history:
-                # Solo ligas sin histórico → mostrar cuotas directamente
-                from .core.data import prepare_fixtures
-                self.results = self._build_odds_only_df(prepare_fixtures(fixtures), divs_odds_only)
-                self.backtest_summary = {}
-                self.diagnostics = [
+                from .core.data import prepare_fixtures as _pf
+                results          = self._build_odds_only_df(_pf(fixtures), divs_odds_only)
+                backtest_summary = {}
+                diagnostics      = [
                     "Modo cuotas en tiempo real (sin modelo IA)",
                     f"Ligas: {', '.join(divs_odds_only)}",
-                    f"Fixtures cargados: {len(self.results)}",
+                    f"Fixtures cargados: {len(results)}",
                 ]
             else:
-                self.analysis_view.update_status("Entrenando modelo...")
-                self.update_idletasks()
+                self._set_status("Entrenando modelo ML…")
                 analyzer = Analyzer(hist, fixtures)
-                self.results = analyzer.run(
+
+                self._set_status("Entrenando Dixon-Coles Poisson…")
+                results = analyzer.run(
                     divs_with_history,
                     float(self.edge1.get()),
                     float(self.edge2.get()),
                 )
-                # Añadir fixtures de ligas sin histórico (solo cuotas)
+
                 if divs_odds_only:
-                    from .core.data import prepare_fixtures
-                    odds_df = self._build_odds_only_df(
-                        prepare_fixtures(fixtures), divs_odds_only
-                    )
+                    from .core.data import prepare_fixtures as _pf
+                    odds_df = self._build_odds_only_df(_pf(fixtures), divs_odds_only)
                     if not odds_df.empty:
-                        self.results = pd.concat(
-                            [self.results, odds_df], ignore_index=True
-                        )
-                self.backtest_summary = analyzer.backtest_summary
-                self.diagnostics      = analyzer.diagnostics
-            self.filtered = self.results.copy()
+                        results = pd.concat([results, odds_df], ignore_index=True)
 
-            self.apply_filters()
-            self._fill_summary()
-            self._refresh_combo()
-            self._refresh_simulator_matches()
-            self.accumulator_view.refresh(self.results)
-            self.quiniela_view.generate_ai(self.results)
+                backtest_summary = analyzer.backtest_summary
+                diagnostics      = analyzer.diagnostics
 
-            self.analysis_view.update_status("✓ Completado")
-            logger.info("Análisis completado: %d fixtures", len(self.results))
-
-            if (
-                self.telegram_enabled.get()
-                and self.send_combo_enabled.get()
-                and self.auto_send_after_analysis.get()
-            ):
-                msg = self._combo_message()
-                if msg:
-                    try:
-                        self.send_telegram_text(msg)
-                        self._add_history_entry(sent=True)
-                    except Exception:
-                        pass
+            # ── Actualizar UI en hilo principal ───────────────────────────────
+            self._ui(lambda r=results, b=backtest_summary, d=diagnostics:
+                     self._on_analysis_done(r, b, d))
 
         except Exception as exc:
-            logger.exception("Error en run_analysis")
-            messagebox.showerror("Error", str(exc))
-            self.analysis_view.update_status("✗ Error")
+            logger.exception("Error en _analysis_worker")
+            self._ui(lambda e=exc: self._on_analysis_error(e))
+
+    def _store_remaining(self, remaining: Optional[str]) -> None:
+        self.odds_api_remaining = remaining
+        self._update_api_counter()
+
+    def _on_analysis_done(
+        self,
+        results: pd.DataFrame,
+        backtest_summary: dict,
+        diagnostics: list,
+    ) -> None:
+        """Llamado en el hilo principal cuando el análisis termina bien."""
+        self.results          = results
+        self.backtest_summary = backtest_summary
+        self.diagnostics      = diagnostics
+        self.filtered         = results.copy()
+
+        self.apply_filters()
+        self._fill_summary()
+        self._refresh_combo()
+        self._refresh_simulator_matches()
+        self.accumulator_view.refresh(self.results)
+        self.quiniela_view.generate_ai(self.results)
+
+        self.analysis_view.update_status(f"✓ Completado — {len(results)} fixtures")
+        logger.info("Análisis completado: %d fixtures", len(results))
+
+        self._analysis_running = False
+        self._set_run_btn(enabled=True)
+
+        if (
+            self.telegram_enabled.get()
+            and self.send_combo_enabled.get()
+            and self.auto_send_after_analysis.get()
+        ):
+            msg = self._combo_message()
+            if msg:
+                try:
+                    self.send_telegram_text(msg)
+                    self._add_history_entry(sent=True)
+                except Exception:
+                    pass
+
+    def _on_analysis_error(self, exc: Exception) -> None:
+        """Llamado en el hilo principal si el análisis falla."""
+        messagebox.showerror("Error en análisis", str(exc))
+        self.analysis_view.update_status("✗ Error")
+        self._analysis_running = False
+        self._set_run_btn(enabled=True)
 
     # ── Odds-only mode (ligas sin histórico: Mundial, Libertadores…) ─────────
 
