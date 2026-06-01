@@ -47,11 +47,12 @@ def fetch_odds_fixtures(
     div_codes: list[str],
     bookmaker: str = "bet365",
     regions: str = "eu",
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, Optional[str]]:
     """
     Descarga próximos partidos con cuotas en tiempo real de The Odds API.
 
-    Devuelve un DataFrame con las mismas columnas que football-data.co.uk
+    Devuelve (DataFrame, peticiones_restantes).
+    El DataFrame tiene las mismas columnas que football-data.co.uk
     (Date, Time, HomeTeam, AwayTeam, Div, B365H, B365D, B365A, B365O25, B365U25)
     para que prepare_fixtures() lo procese sin cambios.
 
@@ -114,11 +115,11 @@ def fetch_odds_fixtures(
 
     if not all_rows:
         logger.warning("The Odds API no devolvió partidos. Revisa la API key y las ligas.")
-        return pd.DataFrame()
+        return pd.DataFrame(), requests_remaining
 
     df = pd.DataFrame(all_rows)
     logger.info("The Odds API: %d fixtures descargados.", len(df))
-    return df
+    return df, requests_remaining
 
 
 def validate_api_key(api_key: str) -> tuple[bool, str]:

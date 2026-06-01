@@ -25,6 +25,7 @@ from .core.data import fetch_csv
 from .core.odds_api import fetch_odds_fixtures
 from .core.storage import Storage
 from .ui.views.accumulator import AccumulatorView
+from .ui.views.quiniela import QuinielaView
 from .ui.views.analysis import AnalysisView
 from .ui.views.portfolio import ExecutionView, PortfolioView
 from .ui.views.settings import SettingsView
@@ -53,6 +54,7 @@ class PremiumApp(ctk.CTk):
         self.diagnostics:      list[str]    = []
         self.history:          list[dict]   = self.storage.load_combos()
         self.bet_sim_history:  list[dict]   = self.storage.load_sims()
+        self.odds_api_remaining: Optional[str] = None
 
         # ── Settings vars ─────────────────────────────────────────────────────
         def _sv(key: str, default: str) -> tk.StringVar:
@@ -87,6 +89,18 @@ class PremiumApp(ctk.CTk):
         self._setup_style()
         self._build_ui()
         self._refresh_portfolio()
+
+    def _update_api_counter(self) -> None:
+        """Refresca el contador de peticiones en el sidebar."""
+        remaining = self.odds_api_remaining
+        if remaining is None:
+            text  = "— / 500 req."
+            color = MUTED
+        else:
+            n = int(remaining)
+            text  = f"{n} / 500 restantes"
+            color = "#00c853" if n > 100 else "#ffd600" if n > 20 else "#ff5252"
+        self.api_counter_lbl.configure(text=text, text_color=color)
 
     # ── Style ─────────────────────────────────────────────────────────────────
 
@@ -137,11 +151,12 @@ class PremiumApp(ctk.CTk):
 
         self._nav_btns: dict[str, ctk.CTkButton] = {}
         nav_items = [
-            ("analysis",     "Trading Desk",   self.show_analysis_view),
+            ("analysis",     "Trading Desk",    self.show_analysis_view),
             ("accumulator",  "⚡ Combinadas IA", self.show_accumulator_view),
-            ("execution",    "Manual Slip",    self.show_execution_view),
-            ("portfolio",    "Portfolio",      self.show_portfolio_view),
-            ("settings",     "Strategy",       self.show_settings_view),
+            ("quiniela",     "⚽ Quiniela IA",   self.show_quiniela_view),
+            ("execution",    "Manual Slip",     self.show_execution_view),
+            ("portfolio",    "Portfolio",       self.show_portfolio_view),
+            ("settings",     "Strategy",        self.show_settings_view),
         ]
         for key, label, cmd in nav_items:
             btn = ctk.CTkButton(
@@ -156,6 +171,22 @@ class PremiumApp(ctk.CTk):
             command=self.run_analysis,
             fg_color=ACCENT, hover_color=ACCENT_2, height=42,
         ).pack(fill="x", padx=14, pady=(16, 6))
+
+        # ── Contador de peticiones API ─────────────────────────────────────
+        api_card = ctk.CTkFrame(
+            sidebar, fg_color="#0d1a2e", corner_radius=10,
+            border_color="#1e2b44", border_width=1,
+        )
+        api_card.pack(fill="x", padx=14, pady=(10, 4))
+        ctk.CTkLabel(
+            api_card, text="⚡ Odds API",
+            text_color="#3b82f6", font=ctk.CTkFont(size=11, weight="bold"),
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+        self.api_counter_lbl = ctk.CTkLabel(
+            api_card, text="— / 500 req.",
+            text_color=MUTED, font=ctk.CTkFont(size=12),
+        )
+        self.api_counter_lbl.pack(anchor="w", padx=10, pady=(0, 8))
 
     def _build_stage(self) -> None:
         stage = ctk.CTkFrame(self, fg_color="transparent")
@@ -184,11 +215,12 @@ class PremiumApp(ctk.CTk):
 
         self.analysis_view    = AnalysisView(content, self)
         self.accumulator_view = AccumulatorView(content, self)
+        self.quiniela_view    = QuinielaView(content, self)
         self.execution_view   = ExecutionView(content, self)
         self.portfolio_view   = PortfolioView(content, self)
         self.settings_view    = SettingsView(content, self)
 
-        for view in [self.analysis_view, self.accumulator_view,
+        for view in [self.analysis_view, self.accumulator_view, self.quiniela_view,
                      self.execution_view, self.portfolio_view, self.settings_view]:
             view.grid(row=0, column=0, sticky="nsew")
 
@@ -197,6 +229,7 @@ class PremiumApp(ctk.CTk):
     _NAV_META = {
         "analysis":    ("Trading Desk",   "Top picks, mercado, tabla principal y ranking"),
         "accumulator": ("Combinadas IA",  "Combinadas 2-4 legs generadas por el modelo IA"),
+        "quiniela":    ("Quiniela IA",    "Picks 1/X/2 con dobles, triples, coste y probabilidad"),
         "execution":   ("Manual Slip",    "Simulación manual 1X2, cuota, stake y retorno"),
         "portfolio":   ("Portfolio",      "Historial de combinadas, ROI y liquidación"),
         "settings":    ("Strategy",       "Telegram, combo builder y configuración"),
@@ -210,7 +243,7 @@ class PremiumApp(ctk.CTk):
         self.view_hint.configure(text=hint)
 
     def _hide_all(self) -> None:
-        for v in [self.analysis_view, self.accumulator_view,
+        for v in [self.analysis_view, self.accumulator_view, self.quiniela_view,
                   self.execution_view, self.portfolio_view, self.settings_view]:
             v.grid_remove()
 
@@ -219,6 +252,9 @@ class PremiumApp(ctk.CTk):
 
     def show_accumulator_view(self):
         self._hide_all(); self.accumulator_view.grid(); self._set_nav("accumulator")
+
+    def show_quiniela_view(self):
+        self._hide_all(); self.quiniela_view.grid(); self._set_nav("quiniela")
 
     def show_execution_view(self):
         self._hide_all(); self.execution_view.grid(); self._set_nav("execution")
@@ -281,7 +317,9 @@ class PremiumApp(ctk.CTk):
                 self.analysis_view.update_status("⚡ Descargando cuotas en tiempo real (The Odds API)...")
                 self.update_idletasks()
                 div_codes = [LEAGUE_MAP[n][0] for n in selected]
-                fixtures  = fetch_odds_fixtures(odds_api_key, div_codes)
+                fixtures, remaining = fetch_odds_fixtures(odds_api_key, div_codes)
+                self.odds_api_remaining = remaining
+                self._update_api_counter()
                 if fixtures.empty:
                     self.analysis_view.update_status("⚠ Sin fixtures de Odds API, usando football-data.co.uk...")
                     self.update_idletasks()
@@ -334,6 +372,7 @@ class PremiumApp(ctk.CTk):
             self._refresh_combo()
             self._refresh_simulator_matches()
             self.accumulator_view.refresh(self.results)
+            self.quiniela_view.generate_ai(self.results)
 
             self.analysis_view.update_status("✓ Completado")
             logger.info("Análisis completado: %d fixtures", len(self.results))
