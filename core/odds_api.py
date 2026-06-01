@@ -173,16 +173,17 @@ def _parse_match(match: dict, div: str, preferred_bk: str) -> Optional[dict]:
         time_str = ""
 
     row: dict = {
-        "Date":     date_str,
-        "Time":     time_str,
-        "HomeTeam": home,
-        "AwayTeam": away,
-        "Div":      div,
-        "B365H":    None,
-        "B365D":    None,
-        "B365A":    None,
-        "B365O25":  None,
-        "B365U25":  None,
+        "Date":              date_str,
+        "Time":              time_str,
+        "HomeTeam":          home,
+        "AwayTeam":          away,
+        "Div":               div,
+        "B365H":             None,
+        "B365D":             None,
+        "B365A":             None,
+        "B365O25":           None,
+        "B365U25":           None,
+        "_bookmakers_raw":   match.get("bookmakers", []),  # para consenso multi-casa
     }
 
     # Seleccionar bookmaker: preferido → primero disponible
