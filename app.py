@@ -92,6 +92,11 @@ class PremiumApp(ctk.CTk):
         self._build_ui()
         self._refresh_portfolio()
 
+        # Poblar historial de simulaciones desde la DB al arrancar
+        if self.bet_sim_history:
+            self.execution_view.refresh_history_panel(self.bet_sim_history)
+            self.execution_view.refresh_stats(self.bet_sim_history)
+
     def _update_api_counter(self) -> None:
         """Refresca el contador de peticiones en el sidebar."""
         remaining = self.odds_api_remaining
