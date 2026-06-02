@@ -2,8 +2,15 @@
 config.py — Constantes globales, mapas de ligas y paleta de colores.
 """
 
-DB_FILE = "football_analyzer.db"
-MODEL_FILE = "football_model.joblib"
+DB_FILE    = "football_analyzer.db"
+MODEL_FILE = "football_model_v11.joblib"   # v11: momentum + H2H + xG proxy + league tier
+
+# Tier de liga: el modelo aprende patrones específicos por nivel competitivo
+LEAGUE_TIER: dict[str, int] = {
+    "E0": 1, "SP1": 1, "I1": 1, "D1": 1, "F1": 1,   # top 5 europeas
+    "P1": 2, "N1": 2, "E1": 2, "SP2": 2,              # tier 2
+    "WC": 0, "LIB": 0, "CSU": 0,                      # internacionales (sin ML)
+}
 
 FIXTURES_URL = "https://www.football-data.co.uk/fixtures.csv"
 
@@ -26,15 +33,15 @@ LEAGUE_MAP: dict[str, tuple[str, str | None, str]] = {
     "🌎 Copa Sudamericana": ("CSU", None, "#06b6d4"),
 }
 
-# ── Paleta UI ──────────────────────────────────────────────────────────────────
-BG       = "#07111f"
-CARD     = "#0d1728"
-CARD_2   = "#101c30"
-BORDER   = "#1e2b44"
-TEXT     = "#e6edf7"
-MUTED    = "#8fa3bf"
-ACCENT   = "#3b82f6"
-ACCENT_2 = "#2563eb"
+# ── Paleta UI — glassmorphism sobre césped ────────────────────────────────────
+BG       = "#1a5228"   # césped verde medio (visible en áreas transparentes)
+CARD     = "#06100a"   # vidrio oscuro — panel flotante sobre el césped
+CARD_2   = "#091408"   # vidrio ligeramente más claro
+BORDER   = "#2dd45b"   # borde de cristal brillante (reflejo del canto del vidrio)
+TEXT     = "#f0fff4"   # blanco verdoso — máximo contraste sobre vidrio
+MUTED    = "#98d4aa"   # verde suave — legible sobre oscuro y sobre césped
+ACCENT   = "#22c55e"   # verde brillante — botones activos, highlights
+ACCENT_2 = "#16a34a"   # verde oscuro — hover
 
 OUTCOME_LABELS = ["H", "D", "A"]
 

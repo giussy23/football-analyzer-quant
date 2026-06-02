@@ -14,6 +14,7 @@ import pandas as pd
 from .config import (
     CLV_MIN, KELLY_CAP, KELLY_FRACTION,
     MAX_OVERROUND_1X2, MAX_OVERROUND_OU, MIN_SAMPLE, MODEL_FILE,
+    LEAGUE_TIER,
 )
 from .consensus import bookmakers_from_api_response, consensus_from_bookmakers, edge_vs_consensus
 
@@ -91,6 +92,7 @@ def compute_reliability(
     fair_prob: Optional[float],
     bt_roi: float,
     bt_logloss: float,
+    roi_std: float = 0.0,
 ) -> int:
     score = 50.0
     score += max(0, min(20, (edge or 0) * 250))
@@ -98,6 +100,8 @@ def compute_reliability(
     score += max(0, min(10, (1.15 - bt_logloss) * 25))
     if model_prob is not None and fair_prob is not None:
         score += max(0, min(5, (model_prob - fair_prob) * 100))
+    # Penalizar edge inestable: alta varianza de ROI entre ventanas = menos fiable
+    score -= max(0, min(15, roi_std * 80))
     return int(max(0, min(99, round(score))))
 
 
@@ -127,49 +131,77 @@ def run_backtest(
     edge_ou: float,
 ) -> dict:
     """
-    Backtest temporal: evalúa solo en la mitad más reciente del dataset
-    para evitar sobreoptimismo in-sample.
+    Walk-forward real con 5 ventanas deslizantes sobre el 40% más reciente del dataset.
+
+    Entrenamiento: primeros 60% datos (el modelo YA ENTRENADO — no re-entrena por ventana).
+    Evaluación: 5 ventanas iguales sobre el 40% restante, secuencialmente.
+
+    Retorna todos los campos habituales más:
+    - wf_windows:     número de ventanas usadas
+    - roi_per_window: lista de ROI por ventana (estabilidad temporal del edge)
+    - roi_std:        desviación estándar del ROI entre ventanas (0=muy estable)
     """
+    WF_WINDOWS = 5
+
     n = len(training_df)
-    eval_df = training_df.iloc[n // 2:].copy()   # sólo segunda mitad
+    holdout_start = int(n * 0.60)
+    holdout_df    = training_df.iloc[holdout_start:].copy()
+
+    holdout_n  = len(holdout_df)
+    window_sz  = max(1, holdout_n // WF_WINDOWS)
 
     profit = bets = wins = 0
     roi_1x2_bets = roi_o25_bets = 0
     roi_1x2_profit = roi_o25_profit = 0.0
+    roi_per_window: list[float] = []
 
-    for _, r in eval_df.iterrows():
-        p_home, p_draw, p_away, _, p_over = model.predict_row(r)
-        market = None
+    for w in range(WF_WINDOWS):
+        w_start = w * window_sz
+        w_end   = w_start + window_sz if w < WF_WINDOWS - 1 else holdout_n
+        window_df = holdout_df.iloc[w_start:w_end]
 
-        if all(pd.notna(r.get(c)) for c in ["B365H", "B365D", "B365A"]):
-            fh, fd, fa = fair_probs(float(r["B365H"]), float(r["B365D"]), float(r["B365A"]))
-            edges = {"1": p_home - fh, "X": p_draw - fd, "2": p_away - fa}
-            best  = max(edges, key=edges.get)
+        w_profit = 0.0
+        w_bets   = 0
 
-            if edges[best] >= edge_1x2:
-                odds = {"1": float(r["B365H"]), "X": float(r["B365D"]), "2": float(r["B365A"])}[best]
-                won  = (
-                    (best == "1" and r["result"] == "H")
-                    or (best == "X" and r["result"] == "D")
-                    or (best == "2" and r["result"] == "A")
-                )
-                pnl = (odds - 1) if won else -1.0
-                profit += pnl; bets += 1; wins += int(won)
-                roi_1x2_bets += 1; roi_1x2_profit += pnl
-                market = best
+        for _, r in window_df.iterrows():
+            p_home, p_draw, p_away, _, p_over = model.predict_row(r)
+            market = None
 
-        if market is None and pd.notna(r.get("B365O25")) and pd.notna(r.get("B365U25")):
-            over_imp  = 1 / float(r["B365O25"])
-            under_imp = 1 / float(r["B365U25"])
-            over_fair = over_imp / (over_imp + under_imp)
-            over_edge = p_over - over_fair
+            if all(pd.notna(r.get(c)) for c in ["B365H", "B365D", "B365A"]):
+                fh, fd, fa = fair_probs(float(r["B365H"]), float(r["B365D"]), float(r["B365A"]))
+                edges = {"1": p_home - fh, "X": p_draw - fd, "2": p_away - fa}
+                best  = max(edges, key=edges.get)
 
-            if over_edge >= edge_ou:
-                odds = float(r["B365O25"])
-                won  = int(r["over25"]) == 1
-                pnl  = (odds - 1) if won else -1.0
-                profit += pnl; bets += 1; wins += int(won)
-                roi_o25_bets += 1; roi_o25_profit += pnl
+                if edges[best] >= edge_1x2:
+                    odds = {"1": float(r["B365H"]), "X": float(r["B365D"]), "2": float(r["B365A"])}[best]
+                    won  = (
+                        (best == "1" and r["result"] == "H")
+                        or (best == "X" and r["result"] == "D")
+                        or (best == "2" and r["result"] == "A")
+                    )
+                    pnl = (odds - 1) if won else -1.0
+                    profit += pnl; bets += 1; wins += int(won)
+                    w_profit += pnl; w_bets += 1
+                    roi_1x2_bets += 1; roi_1x2_profit += pnl
+                    market = best
+
+            if market is None and pd.notna(r.get("B365O25")) and pd.notna(r.get("B365U25")):
+                over_imp  = 1 / float(r["B365O25"])
+                under_imp = 1 / float(r["B365U25"])
+                over_fair = over_imp / (over_imp + under_imp)
+                over_edge = p_over - over_fair
+
+                if over_edge >= edge_ou:
+                    odds = float(r["B365O25"])
+                    won  = int(r["over25"]) == 1
+                    pnl  = (odds - 1) if won else -1.0
+                    profit += pnl; bets += 1; wins += int(won)
+                    w_profit += pnl; w_bets += 1
+                    roi_o25_bets += 1; roi_o25_profit += pnl
+
+        roi_per_window.append(round(w_profit / w_bets, 4) if w_bets else 0.0)
+
+    roi_std = float(np.std(roi_per_window)) if roi_per_window else 0.0
 
     return {
         "bets":             bets,
@@ -178,7 +210,10 @@ def run_backtest(
         "hit":              round(wins / bets, 4)   if bets else 0.0,
         "market_1x2_roi":   round(roi_1x2_profit / roi_1x2_bets, 4) if roi_1x2_bets else 0.0,
         "market_o25_roi":   round(roi_o25_profit / roi_o25_bets, 4) if roi_o25_bets else 0.0,
-        "eval_samples":     len(eval_df),
+        "eval_samples":     len(holdout_df),
+        "wf_windows":       WF_WINDOWS,
+        "roi_per_window":   roi_per_window,
+        "roi_std":          round(roi_std, 4),
     }
 
 
@@ -194,15 +229,16 @@ def build_training_frame(hist_by_div: dict[str, pd.DataFrame]) -> pd.DataFrame:
                 continue
             feat.update(extract_market_features(r))
             feat.update({
-                "div":         div,
-                "result":      r.result,
-                "over25":      r.over25,
-                "total_goals": r.total_goals,
-                "B365H":       r.get("B365H"),
-                "B365D":       r.get("B365D"),
-                "B365A":       r.get("B365A"),
-                "B365O25":     r.get("B365O25"),
-                "B365U25":     r.get("B365U25"),
+                "div":           div,
+                "f_league_tier": LEAGUE_TIER.get(div, 3),
+                "result":        r.result,
+                "over25":        r.over25,
+                "total_goals":   r.total_goals,
+                "B365H":         r.get("B365H"),
+                "B365D":         r.get("B365D"),
+                "B365A":         r.get("B365A"),
+                "B365O25":       r.get("B365O25"),
+                "B365U25":       r.get("B365U25"),
             })
             rows.append(feat)
     return pd.DataFrame(rows)
@@ -285,6 +321,7 @@ class Analyzer:
                     continue
 
                 feat.update(extract_market_features(r))
+                feat["f_league_tier"] = LEAGUE_TIER.get(div, 3)
                 feat_row = pd.Series(feat)
 
                 p_home_ml, p_draw_ml, p_away_ml, expected_goals, p_over = \
@@ -387,7 +424,12 @@ class Analyzer:
                 edge_ok        = edge is not None and edge >= max(edge_1x2 if market in ["1", "X", "2"] else edge_ou, 0.025)
                 passes_filters = sample_ok and overround_ok and clv_ok and edge_ok
 
-                reliability  = compute_reliability(edge, model_prob, fair_prob, bt.get("roi", 0), bt.get("match_logloss", self.model.metrics["oos_match_logloss"]))
+                reliability  = compute_reliability(
+                    edge, model_prob, fair_prob,
+                    bt.get("roi", 0),
+                    bt.get("match_logloss", self.model.metrics["oos_match_logloss"]),
+                    roi_std=bt.get("roi_std", 0.0),
+                )
                 risk_light, reason = assess_risk(edge, reliability, passes_filters, market)
                 no_bet       = "SI" if risk_light == "ROJO" else "NO"
                 bankroll_pct = 0.0 if no_bet == "SI" else fractional_kelly(model_prob, odds) * 100
@@ -440,7 +482,6 @@ class Analyzer:
                     "risk_light":      risk_light,
                     "no_bet":          no_bet,
                     "bankroll_pct":    round(bankroll_pct, 2),
-                    "stake_units":     round(bankroll_pct, 2),
                     "analysis":        (
                         reason if no_bet == "SI"
                         else (
