@@ -1,4 +1,4 @@
-"""
+﻿"""
 ui/views/analysis.py — Vista principal: Trading Desk con tabla de picks.
 """
 
@@ -17,6 +17,72 @@ from ...core.config import (
 )
 from ..widgets import make_card, make_textbox, textbox_set
 
+
+class _ColumnTooltip:
+    """Muestra un tooltip al pasar el ratón por las cabeceras del Treeview."""
+    TIPS: dict = {
+        "edge":              "Ventaja del modelo vs el mercado (>3% = valor estadístico)",
+        "clv":               "Closing Line Value — si la cuota bajó tras tu pick, el mercado te dio la razón",
+        "model_prob":        "Probabilidad ensemble (ML 60% + Dixon-Coles 40%)",
+        "fair_prob":         "Probabilidad implícita del mercado sin el margen de la casa",
+        "ev":                "Expected Value: ganancia media por cada €1 apostado",
+        "bankroll_pct":      "Kelly fraccionado: % de bankroll sugerido por la fórmula Kelly",
+        "reliability_score": "0–99 — calidad de la predicción (≥74: sólida, <58: descartada)",
+        "consensus_edge":    "Edge vs promedio de 20+ casas. Más fiable que una sola casa.",
+        "open_overround":    "Sobreround de apertura (>1.08 = margen alto, mercado menos eficiente)",
+        "market_entropy":    "Entropía del mercado: alto = partido muy incierto",
+        "p_home":            "P(Local gana) — probabilidad final del ensemble",
+        "p_away":            "P(Visitante gana) — probabilidad final del ensemble",
+        "p_over25":          "P(+2.5 goles) — del modelo GradientBoosting calibrado",
+    }
+
+    def __init__(self, tree: ttk.Treeview) -> None:
+        self._tree = tree
+        self._tw: "tk.Toplevel | None" = None
+        tree.bind("<Motion>", self._on_motion)
+        tree.bind("<Leave>",  self._hide)
+
+    def _on_motion(self, event) -> None:
+        region = self._tree.identify_region(event.x, event.y)
+        if region != "heading":
+            self._hide()
+            return
+        col = self._tree.identify_column(event.x)
+        col_id = self._tree.column(col, "id") if col else ""
+        tip = self.TIPS.get(col_id, "")
+        if not tip:
+            self._hide()
+            return
+        self._show(tip, event.x_root + 14, event.y_root + 14)
+
+    def _show(self, text: str, x: int, y: int) -> None:
+        self._hide()
+        self._tw = tw = tk.Toplevel(self._tree)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tk.Label(
+            tw, text=text, justify="left",
+            background="#0f2914", foreground="#f0fff4",
+            relief="flat", padx=10, pady=6,
+            font=("Segoe UI", 10),
+            wraplength=320,
+        ).pack()
+
+    def _hide(self, *_) -> None:
+        if self._tw:
+            self._tw.destroy()
+            self._tw = None
+
+
+TREE_HEADERS = {
+    "date": "Fecha", "league": "Liga", "home_team": "Local",
+    "away_team": "Visitante", "pick": "Pick", "odds": "Cuota",
+    "edge": "Edge", "model_prob": "P(Modelo)", "fair_prob": "P(Mercado)",
+    "open_fair_prob": "P(Apertura)", "close_fair_prob": "P(Cierre)",
+    "clv": "CLV", "open_overround": "Overround",
+    "ev": "EV", "reliability_score": "Fiabilidad",
+    "bankroll_pct": "Kelly%", "analysis": "Análisis",
+}
 
 TREE_COLUMNS = [
     "date", "league", "home_team", "away_team",
@@ -100,12 +166,14 @@ class AnalysisView(ctk.CTkFrame):
         ctk.CTkButton(
             lb, text="Guardar workspace",
             command=self.app.save_settings,
-            fg_color="#1f3357",
+            fg_color="#0a2210",
         ).pack(fill="x", pady=(8, 0))
 
     # ── Center panel ───────────────────────────────────────────────────────────
 
     def _build_center_panel(self):
+        self._iid_map: dict[str, str] = {}
+
         center = make_card(
             self, "Resultados",
             "Trading Desk principal con top picks, tabla y visión de valor",
@@ -126,7 +194,7 @@ class AnalysisView(ctk.CTkFrame):
 
         # KPI hero row
         hero = ctk.CTkFrame(
-            center, fg_color="#0b1627",
+            center, fg_color="#060f07",
             border_color=BORDER, border_width=1, corner_radius=14,
         )
         hero.pack(fill="x", padx=14, pady=(0, 8))
@@ -134,7 +202,7 @@ class AnalysisView(ctk.CTkFrame):
 
         self.metric_labels: list[ctk.CTkLabel] = []
         for idx, title in enumerate(["Matches", "Picks", "ROI (OOS)", "CLV picks"]):
-            box = ctk.CTkFrame(hero, fg_color="#0f1b31", corner_radius=12)
+            box = ctk.CTkFrame(hero, fg_color="#06100a", corner_radius=12)
             box.grid(row=0, column=idx, padx=6, pady=10, sticky="ew")
             ctk.CTkLabel(
                 box, text=title, text_color=MUTED,
@@ -166,15 +234,29 @@ class AnalysisView(ctk.CTkFrame):
         self.league_rank_box = make_textbox(lr, height=130)
         self.league_rank_box.pack(fill="x", padx=12, pady=(0, 12))
 
-        # Main treeview
-        shell = ctk.CTkFrame(center, fg_color="#08101a")
-        shell.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        # ── Panel de análisis IA (abajo) ──────────────────────────────────────
+        detail_bar = ctk.CTkFrame(
+            center, fg_color=CARD, corner_radius=10,
+            border_color=BORDER, border_width=1,
+        )
+        detail_bar.pack(side="bottom", fill="x", padx=14, pady=(4, 14))
+        ctk.CTkLabel(
+            detail_bar, text="🧠  Análisis Claude IA",
+            text_color=ACCENT, font=ctk.CTkFont(size=11, weight="bold"),
+        ).pack(anchor="w", padx=12, pady=(8, 2))
+        self._detail_box = make_textbox(detail_bar, height=60)
+        self._detail_box.pack(fill="x", padx=12, pady=(0, 8))
+        textbox_set(self._detail_box, "Selecciona un partido para ver el análisis IA.")
+
+        # ── Main treeview ──────────────────────────────────────────────────────
+        shell = ctk.CTkFrame(center, fg_color="#060f07")
+        shell.pack(fill="both", expand=True, padx=14, pady=(0, 4))
         shell.grid_rowconfigure(0, weight=1)
         shell.grid_columnconfigure(0, weight=1)
 
         self.tree = ttk.Treeview(shell, columns=TREE_COLUMNS, show="headings")
         for col in TREE_COLUMNS:
-            self.tree.heading(col, text=col.upper())
+            self.tree.heading(col, text=TREE_HEADERS.get(col, col.upper()))
             self.tree.column(col, width=TREE_WIDTHS.get(col, 100), anchor="center")
 
         self.tree.grid(row=0, column=0, sticky="nsew")
@@ -185,7 +267,10 @@ class AnalysisView(ctk.CTkFrame):
         self.tree.tag_configure("green",  background="#0e2d1d", foreground="#d6ffe6")
         self.tree.tag_configure("yellow", background="#3a2c0e", foreground="#fff0c2")
         self.tree.tag_configure("red",    background="#341313", foreground="#ffd3d3")
-        self.tree.tag_configure("grey",   background="#151c2a", foreground="#8fa3bf")  # sin modelo IA
+        self.tree.tag_configure("grey",   background="#06100a", foreground="#8fa3bf")
+
+        self.tree.bind("<<TreeviewSelect>>", self._on_row_select)
+        self._col_tooltip = _ColumnTooltip(self.tree)
 
     # ── Refresh methods ────────────────────────────────────────────────────────
 
@@ -227,6 +312,7 @@ class AnalysisView(ctk.CTkFrame):
         textbox_set(self.summary_box, "\n".join(lines))
 
     def fill_tree(self, df: pd.DataFrame) -> None:
+        self._iid_map = {}
         for row in self.tree.get_children():
             self.tree.delete(row)
 
@@ -240,7 +326,6 @@ class AnalysisView(ctk.CTkFrame):
         )
 
         for _, row in sorted_df.iterrows():
-            # Gris para partidos sin modelo IA (cuotas en tiempo real sin histórico)
             no_model = (
                 pd.isna(row.get("edge")) and
                 pd.isna(row.get("model_prob")) and
@@ -261,7 +346,9 @@ class AnalysisView(ctk.CTkFrame):
                     except Exception:
                         pass
                 vals.append(v)
-            self.tree.insert("", "end", values=vals, tags=(tag,))
+            iid = self.tree.insert("", "end", values=vals, tags=(tag,))
+            key = f"{row.get('home_team', '')}::{row.get('away_team', '')}"
+            self._iid_map[key] = iid
 
     def fill_top_picks(self, df: pd.DataFrame) -> None:
         if df.empty:
@@ -276,6 +363,35 @@ class AnalysisView(ctk.CTkFrame):
             for i, (_, r) in enumerate(top.iterrows(), 1)
         ]
         textbox_set(self.top_picks_box, "\n".join(lines))
+
+    def update_pick_analysis(self, match_key: str, text: str) -> None:
+        """Actualiza la columna Análisis de un partido cuando Claude responde."""
+        iid = self._iid_map.get(match_key)
+        if not iid:
+            return
+        try:
+            vals = list(self.tree.item(iid, "values"))
+            ai_idx = TREE_COLUMNS.index("analysis")
+            vals[ai_idx] = text
+            self.tree.item(iid, values=vals)
+            if iid in self.tree.selection():
+                textbox_set(self._detail_box, text)
+        except Exception:
+            pass
+
+    def _on_row_select(self, _event=None) -> None:
+        sel = self.tree.selection()
+        if not sel:
+            return
+        vals = self.tree.item(sel[0], "values")
+        if not vals:
+            return
+        try:
+            ai_idx = TREE_COLUMNS.index("analysis")
+            text = str(vals[ai_idx]) if vals[ai_idx] else "—"
+            textbox_set(self._detail_box, text)
+        except Exception:
+            pass
 
     def fill_league_ranking(self, df: pd.DataFrame) -> None:
         if df.empty or "league" not in df.columns:

@@ -5,6 +5,7 @@ app.py — Clase principal PremiumApp: orquesta vistas, lógica y datos.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import tkinter as tk
 from datetime import datetime
@@ -29,12 +30,13 @@ from .ui.views.accumulator import AccumulatorView
 from .ui.views.quiniela import QuinielaView
 from .ui.views.analysis import AnalysisView
 from .ui.views.portfolio import ExecutionView, PortfolioView
+from .ui.views.results import ResultsView
 from .ui.views.settings import SettingsView
 
 logger = logging.getLogger(__name__)
 
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+ctk.set_default_color_theme("green")
 
 
 class PremiumApp(ctk.CTk):
@@ -73,6 +75,7 @@ class PremiumApp(ctk.CTk):
         self.only_picks  = _bv("only_picks",  "0")
 
         self.use_odds_api            = _bv("use_odds_api",            "0")
+        self.use_claude_analysis     = _bv("use_claude_analysis",     "0")
         self.telegram_enabled        = _bv("telegram_enabled",        "0")
         self.send_combo_enabled      = _bv("send_combo_enabled",      "1")
         self.auto_send_after_analysis = _bv("auto_send_after_analysis", "0")
@@ -116,15 +119,16 @@ class PremiumApp(ctk.CTk):
         style.theme_use("clam")
         style.configure(
             "Treeview",
-            background="#0a1422", fieldbackground="#0a1422",
-            foreground="#dbe7f8", rowheight=28,
+            background="#06100a", fieldbackground="#06100a",
+            foreground="#f0fff4", rowheight=28,
             font=("Segoe UI", 10),
         )
         style.configure(
             "Treeview.Heading",
-            background="#12233d", foreground="#eaf2ff",
+            background="#091408", foreground="#f0fff4",
             font=("Segoe UI Semibold", 10),
         )
+        style.map("Treeview", background=[("selected", "#1a4d2a")])
 
     # ── UI layout ─────────────────────────────────────────────────────────────
 
@@ -132,45 +136,240 @@ class PremiumApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
+        self._build_pitch_bg()
         self._build_sidebar()
         self._build_stage()
 
         self.show_analysis_view()
 
+    def _build_pitch_bg(self) -> None:
+        """Dibuja un campo de fútbol completo como fondo de la ventana."""
+        c = tk.Canvas(self, bg="#16472a", highlightthickness=0, bd=0)
+        c.place(x=0, y=0, relwidth=1, relheight=1)
+
+        self.update_idletasks()
+        W = self.winfo_width() or 1780
+        H = self.winfo_height() or 1040
+
+        # Franjas verticales de césped
+        DK, LT = "#14402a", "#1a5c34"
+        sw = 80
+        for i in range(0, W, sw * 2):
+            c.create_rectangle(i, 0, min(i + sw, W), H, fill=LT, outline="")
+
+        # Proporciones del campo FIFA: 100m × 68m
+        scale = (H - 80) / 68          # px por metro (basado en alto)
+        fw = int(100 * scale)          # ancho del campo en px
+        fh = H - 80                    # alto del campo en px
+        mx = (W - fw) // 2            # margen horizontal
+        my = 40                        # margen vertical
+        LN, LW = "#d4f0dc", 2.0        # color y grosor de las líneas (blanco verdoso)
+
+        def line(*args, **kw):
+            c.create_line(*args, fill=LN, width=LW, **kw)
+
+        def rect(x0, y0, x1, y1):
+            c.create_rectangle(x0, y0, x1, y1, outline=LN, width=LW, fill="")
+
+        def oval(x0, y0, x1, y1):
+            c.create_oval(x0, y0, x1, y1, outline=LN, width=LW, fill="")
+
+        cx, cy = mx + fw // 2, my + fh // 2
+
+        # Perímetro
+        rect(mx, my, mx + fw, my + fh)
+
+        # Línea central
+        line(cx, my, cx, my + fh)
+
+        # Círculo y punto central
+        cr = int(9.15 * scale)
+        oval(cx - cr, cy - cr, cx + cr, cy + cr)
+        c.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=LN, outline="")
+
+        # Áreas de penalti (40.32m × 16.5m)
+        pw, ph = int(16.5 * scale), int(40.32 * scale)
+        # Área grande izquierda
+        rect(mx, cy - ph // 2, mx + pw, cy + ph // 2)
+        # Área pequeña izquierda (18.32m × 5.5m)
+        rect(mx, cy - int(18.32 * scale / 2),
+             mx + int(5.5 * scale), cy + int(18.32 * scale / 2))
+        # Área grande derecha
+        rect(mx + fw - pw, cy - ph // 2, mx + fw, cy + ph // 2)
+        # Área pequeña derecha
+        rect(mx + fw - int(5.5 * scale), cy - int(18.32 * scale / 2),
+             mx + fw, cy + int(18.32 * scale / 2))
+
+        # Puntos de penalti (11m)
+        pd = int(11 * scale)
+        for px in [mx + pd, mx + fw - pd]:
+            c.create_oval(px - 3, cy - 3, px + 3, cy + 3, fill=LN, outline="")
+
+        # Arco D del área (radio 9.15m desde el punto de penalti)
+        dr = cr
+        for px, sa, ext in [(mx + pd, -53, 106), (mx + fw - pd, 127, 106)]:
+            c.create_arc(px - dr, cy - dr, px + dr, cy + dr,
+                         start=sa, extent=ext, outline=LN, width=LW, style="arc")
+
+        # Arcos de esquina (radio 1m)
+        ar = max(10, int(1 * scale))
+        for (qx, qy, sa) in [
+            (mx, my, 270), (mx + fw, my, 180),
+            (mx, my + fh, 0), (mx + fw, my + fh, 90),
+        ]:
+            c.create_arc(qx - ar, qy - ar, qx + ar, qy + ar,
+                         start=sa, extent=90, outline=LN, width=LW, style="arc")
+
+        # Porterías (7.32m de ancho, 2.44m de profundidad)
+        gw = int(7.32 * scale / 2)
+        gd = max(8, int(2.44 * scale))
+        rect(mx - gd, cy - gw, mx, cy + gw)
+        rect(mx + fw, cy - gw, mx + fw + gd, cy + gw)
+
+        tk.Misc.lower(c)   # detrás de todo (Canvas.lower es para items, usamos Misc)
+        self._bg_canvas = c
+
+    def _draw_pitch_header(self, parent) -> tk.Canvas:
+        """Dibuja un mini campo de fútbol con pelota en un Canvas tkinter."""
+        W, H = 192, 108
+        GD = "#0b5218"   # franja oscura del césped
+        GL = "#0d6020"   # franja clara del césped
+        LN = "#ffffff"   # líneas del campo
+
+        c = tk.Canvas(parent, width=W, height=H, bg=GD,
+                      highlightthickness=0, bd=0)
+
+        # Franjas verticales de césped (efecto cortacésped)
+        sw = 16
+        for i in range(0, W, sw * 2):
+            c.create_rectangle(i, 0, min(i + sw, W), H, fill=GL, outline="")
+
+        m = 8             # margen del campo
+        cx, cy = W // 2, H // 2
+
+        # ── Porterías (fondo verde más oscuro) ────────────────────────────────
+        gd, gh = 5, 22
+        for gx in [(m - gd, m), (W - m, W - m + gd)]:
+            c.create_rectangle(gx[0], cy - gh // 2, gx[1], cy + gh // 2,
+                               fill="#1a5c2a", outline=LN, width=1)
+
+        # ── Perímetro ─────────────────────────────────────────────────────────
+        c.create_rectangle(m, m, W - m, H - m, outline=LN, width=1.5, fill="")
+
+        # ── Línea central ─────────────────────────────────────────────────────
+        c.create_line(cx, m, cx, H - m, fill=LN, width=1.5)
+
+        # ── Área grande izquierda ──────────────────────────────────────────────
+        bw, bh = 28, 52
+        c.create_rectangle(m, cy - bh // 2, m + bw, cy + bh // 2,
+                           outline=LN, width=1.5, fill="")
+        # Área pequeña izquierda
+        c.create_rectangle(m, cy - 13, m + 12, cy + 13,
+                           outline=LN, width=1.2, fill="")
+
+        # ── Área grande derecha ────────────────────────────────────────────────
+        c.create_rectangle(W - m - bw, cy - bh // 2, W - m, cy + bh // 2,
+                           outline=LN, width=1.5, fill="")
+        # Área pequeña derecha
+        c.create_rectangle(W - m - 12, cy - 13, W - m, cy + 13,
+                           outline=LN, width=1.2, fill="")
+
+        # ── Círculo central ────────────────────────────────────────────────────
+        cr = 16
+        c.create_oval(cx - cr, cy - cr, cx + cr, cy + cr,
+                      outline=LN, width=1.5, fill="")
+        c.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill=LN, outline="")
+
+        # ── Puntos de penalti ──────────────────────────────────────────────────
+        for px in [m + 22, W - m - 22]:
+            c.create_oval(px - 2, cy - 2, px + 2, cy + 2, fill=LN, outline="")
+
+        # ── Pelota de fútbol ───────────────────────────────────────────────────
+        bx, by, br = cx + 34, cy - 20, 11
+
+        # Sombra difuminada
+        c.create_oval(bx - br + 2, by - br + 3,
+                      bx + br + 2, by + br + 3,
+                      fill="#040e04", outline="")
+
+        # Cuerpo blanco de la pelota
+        c.create_oval(bx - br, by - br, bx + br, by + br,
+                      fill="#f0f0f0", outline="#c8c8c8", width=1)
+
+        # Pentágono central negro
+        ppts = []
+        for i in range(5):
+            a = math.radians(i * 72 - 90)
+            ppts += [bx + int(br * 0.37 * math.cos(a)),
+                     by + int(br * 0.37 * math.sin(a))]
+        c.create_polygon(ppts, fill="#1a1a1a", outline="")
+
+        # 5 manchas exteriores (pentágonos alrededor)
+        for j in range(5):
+            ac = math.radians(j * 72 - 54)
+            ox = bx + int(br * 0.70 * math.cos(ac))
+            oy = by + int(br * 0.70 * math.sin(ac))
+            opts = []
+            for i in range(5):
+                a = math.radians(i * 72 + j * 72 + 90)
+                opts += [ox + int(br * 0.29 * math.cos(a)),
+                         oy + int(br * 0.29 * math.sin(a))]
+            c.create_polygon(opts, fill="#1a1a1a", outline="")
+
+        # Brillo (glare superior-izquierdo)
+        c.create_oval(bx - 6, by - 6, bx - 2, by - 2,
+                      fill="#ffffff", outline="")
+
+        return c
+
     def _build_sidebar(self) -> None:
         sidebar = ctk.CTkFrame(
-            self, fg_color="#09121f", width=220,
+            self, fg_color="#0a1e0c", width=220,
             corner_radius=18, border_color=BORDER, border_width=1,
         )
         sidebar.grid(row=0, column=0, sticky="nsw", padx=(14, 10), pady=14)
         sidebar.grid_propagate(False)
 
+        # ── Mini campo de fútbol ───────────────────────────────────────────────
+        pitch_wrap = ctk.CTkFrame(
+            sidebar, fg_color="#061406",
+            corner_radius=10, border_color=BORDER, border_width=1,
+        )
+        pitch_wrap.pack(fill="x", padx=10, pady=(12, 0))
+        self._draw_pitch_header(pitch_wrap).pack(padx=4, pady=4)
+
+        # ── Título ─────────────────────────────────────────────────────────────
         ctk.CTkLabel(
             sidebar, text="Football Analyzer\nQuant Pro v10",
             justify="left", text_color=TEXT,
-            font=ctk.CTkFont(size=24, weight="bold"),
-        ).pack(anchor="w", padx=16, pady=(18, 12))
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).pack(anchor="w", padx=16, pady=(10, 2))
 
         ctk.CTkLabel(
-            sidebar, text="Walk-forward OOS · Kelly fraccionado · Módulos separados",
+            sidebar,
+            text="Walk-forward · Kelly · Elo · Dixon-Coles",
             justify="left", text_color=MUTED, wraplength=180,
-        ).pack(anchor="w", padx=16, pady=(0, 12))
+            font=ctk.CTkFont(size=10),
+        ).pack(anchor="w", padx=16, pady=(0, 10))
 
+        # ── Navegación ─────────────────────────────────────────────────────────
         self._nav_btns: dict[str, ctk.CTkButton] = {}
         nav_items = [
-            ("analysis",     "Trading Desk",    self.show_analysis_view),
-            ("accumulator",  "⚡ Combinadas IA", self.show_accumulator_view),
-            ("quiniela",     "⚽ Quiniela IA",   self.show_quiniela_view),
-            ("execution",    "Manual Slip",     self.show_execution_view),
-            ("portfolio",    "Portfolio",       self.show_portfolio_view),
-            ("settings",     "Strategy",        self.show_settings_view),
+            ("analysis",    "📊  Trading Desk",   self.show_analysis_view),
+            ("accumulator", "⚡  Combinadas IA",  self.show_accumulator_view),
+            ("quiniela",    "⚽  Quiniela IA",    self.show_quiniela_view),
+            ("results",     "📊  Resultados",     self.show_results_view),
+            ("execution",   "🎯  Manual Slip",    self.show_execution_view),
+            ("portfolio",   "📈  Portfolio",      self.show_portfolio_view),
+            ("settings",    "⚙️  Strategy",       self.show_settings_view),
         ]
         for key, label, cmd in nav_items:
             btn = ctk.CTkButton(
                 sidebar, text=label, command=cmd,
-                fg_color="#18253d", hover_color="#22365b", height=42,
+                fg_color="#0f2e14", hover_color="#163d1c",
+                anchor="w", height=42,
             )
-            btn.pack(fill="x", padx=14, pady=6)
+            btn.pack(fill="x", padx=14, pady=4)
             self._nav_btns[key] = btn
 
         self._run_btn = ctk.CTkButton(
@@ -178,12 +377,12 @@ class PremiumApp(ctk.CTk):
             command=self.run_analysis,
             fg_color=ACCENT, hover_color=ACCENT_2, height=42,
         )
-        self._run_btn.pack(fill="x", padx=14, pady=(16, 4))
+        self._run_btn.pack(fill="x", padx=14, pady=(14, 4))
 
-        # ── Barra de progreso ──────────────────────────────────────────────
+        # ── Barra de progreso ──────────────────────────────────────────────────
         prog_card = ctk.CTkFrame(
-            sidebar, fg_color="#0d1a2e", corner_radius=10,
-            border_color="#1e2b44", border_width=1,
+            sidebar, fg_color=CARD, corner_radius=10,
+            border_color=BORDER, border_width=1,
         )
         prog_card.pack(fill="x", padx=14, pady=(0, 6))
         prog_card.grid_columnconfigure(0, weight=1)
@@ -194,8 +393,7 @@ class PremiumApp(ctk.CTk):
 
         self._prog_lbl = ctk.CTkLabel(
             prog_header, text="Listo",
-            text_color=MUTED, font=ctk.CTkFont(size=10),
-            anchor="w",
+            text_color=MUTED, font=ctk.CTkFont(size=10), anchor="w",
         )
         self._prog_lbl.pack(side="left", fill="x", expand=True)
 
@@ -208,21 +406,21 @@ class PremiumApp(ctk.CTk):
 
         self._progress_bar = ctk.CTkProgressBar(
             prog_card, height=8, corner_radius=4,
-            fg_color="#1e2b44", progress_color=ACCENT,
+            fg_color=BORDER, progress_color=ACCENT,
             mode="determinate",
         )
         self._progress_bar.set(0)
         self._progress_bar.pack(fill="x", padx=10, pady=(0, 10))
 
-        # ── Contador de peticiones API ─────────────────────────────────────
+        # ── Contador de peticiones API ─────────────────────────────────────────
         api_card = ctk.CTkFrame(
-            sidebar, fg_color="#0d1a2e", corner_radius=10,
-            border_color="#1e2b44", border_width=1,
+            sidebar, fg_color=CARD, corner_radius=10,
+            border_color=BORDER, border_width=1,
         )
-        api_card.pack(fill="x", padx=14, pady=(10, 4))
+        api_card.pack(fill="x", padx=14, pady=(8, 4))
         ctk.CTkLabel(
             api_card, text="⚡ Odds API",
-            text_color="#3b82f6", font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=ACCENT, font=ctk.CTkFont(size=11, weight="bold"),
         ).pack(anchor="w", padx=10, pady=(8, 2))
         self.api_counter_lbl = ctk.CTkLabel(
             api_card, text="— / 500 req.",
@@ -258,12 +456,14 @@ class PremiumApp(ctk.CTk):
         self.analysis_view    = AnalysisView(content, self)
         self.accumulator_view = AccumulatorView(content, self)
         self.quiniela_view    = QuinielaView(content, self)
+        self.results_view     = ResultsView(content, self)
         self.execution_view   = ExecutionView(content, self)
         self.portfolio_view   = PortfolioView(content, self)
         self.settings_view    = SettingsView(content, self)
 
         for view in [self.analysis_view, self.accumulator_view, self.quiniela_view,
-                     self.execution_view, self.portfolio_view, self.settings_view]:
+                     self.results_view, self.execution_view, self.portfolio_view,
+                     self.settings_view]:
             view.grid(row=0, column=0, sticky="nsew")
 
     # ── Navigation ────────────────────────────────────────────────────────────
@@ -272,6 +472,7 @@ class PremiumApp(ctk.CTk):
         "analysis":    ("Trading Desk",   "Top picks, mercado, tabla principal y ranking"),
         "accumulator": ("Combinadas IA",  "Combinadas 2-4 legs generadas por el modelo IA"),
         "quiniela":    ("Quiniela IA",    "Picks 1/X/2 con dobles, triples, coste y probabilidad"),
+        "results":     ("Resultados",     "Seguimiento de picks reales · ROI verificado"),
         "execution":   ("Manual Slip",    "Simulación manual 1X2, cuota, stake y retorno"),
         "portfolio":   ("Portfolio",      "Historial de combinadas, ROI y liquidación"),
         "settings":    ("Strategy",       "Telegram, combo builder y configuración"),
@@ -279,14 +480,15 @@ class PremiumApp(ctk.CTk):
 
     def _set_nav(self, active: str) -> None:
         for key, btn in self._nav_btns.items():
-            btn.configure(fg_color=ACCENT if key == active else "#18253d")
+            btn.configure(fg_color=ACCENT if key == active else "#0f2e14")
         title, hint = self._NAV_META[active]
         self.view_title.configure(text=title)
         self.view_hint.configure(text=hint)
 
     def _hide_all(self) -> None:
         for v in [self.analysis_view, self.accumulator_view, self.quiniela_view,
-                  self.execution_view, self.portfolio_view, self.settings_view]:
+                  self.results_view, self.execution_view, self.portfolio_view,
+                  self.settings_view]:
             v.grid_remove()
 
     def show_analysis_view(self):
@@ -297,6 +499,9 @@ class PremiumApp(ctk.CTk):
 
     def show_quiniela_view(self):
         self._hide_all(); self.quiniela_view.grid(); self._set_nav("quiniela")
+
+    def show_results_view(self):
+        self._hide_all(); self.results_view.grid(); self._set_nav("results")
 
     def show_execution_view(self):
         self._hide_all(); self.execution_view.grid(); self._set_nav("execution")
@@ -324,6 +529,8 @@ class PremiumApp(ctk.CTk):
             "auto_send_after_analysis": int(self.auto_send_after_analysis.get()),
             "odds_api_key":             self.settings_view.get_odds_api_key(),
             "use_odds_api":             int(self.use_odds_api.get()),
+            "anthropic_api_key":        self.settings_view.get_anthropic_api_key(),
+            "use_claude_analysis":      int(self.use_claude_analysis.get()),
             "only_green":               int(self.only_green.get()),
             "only_picks":               int(self.only_picks.get()),
             "combo_size":               self.combo_size.get(),
@@ -520,6 +727,7 @@ class PremiumApp(ctk.CTk):
         self._refresh_simulator_matches()
         self.accumulator_view.refresh(self.results)
         self.quiniela_view.generate_ai(self.results)
+        self._start_claude_enrichment(results)
 
         self.analysis_view.update_status(f"✓ Completado — {len(results)} fixtures")
         logger.info("Análisis completado: %d fixtures", len(results))
@@ -540,6 +748,43 @@ class PremiumApp(ctk.CTk):
                     self._add_history_entry(sent=True)
                 except Exception:
                     pass
+
+    # ── Claude enrichment ─────────────────────────────────────────────────────
+
+    def _start_claude_enrichment(self, results: pd.DataFrame) -> None:
+        """Lanza el enriquecimiento Claude en hilo de fondo si está activado."""
+        if not self.use_claude_analysis.get():
+            return
+        api_key = self.storage.get_setting("anthropic_api_key", "")
+        if not api_key:
+            return
+        verde = results[results["risk_light"].isin(["VERDE", "AMARILLO"])].copy()
+        if verde.empty:
+            return
+        threading.Thread(
+            target=self._claude_enrichment_worker,
+            args=(verde, api_key),
+            daemon=True,
+        ).start()
+
+    def _claude_enrichment_worker(self, verde: pd.DataFrame, api_key: str) -> None:
+        """Hilo de fondo: llama a Claude para cada pick VERDE/AMARILLO."""
+        from .core.ai_analysis import generate_pick_analysis
+        for _, row in verde.iterrows():
+            text = generate_pick_analysis(row.to_dict(), api_key)
+            if not text:
+                continue
+            home = str(row["home_team"])
+            away = str(row["away_team"])
+            # Actualizar self.results
+            mask = (
+                (self.results["home_team"] == home) &
+                (self.results["away_team"] == away)
+            )
+            self.results.loc[mask, "analysis"] = text
+            # Actualizar celda del treeview en el hilo principal
+            key = f"{home}::{away}"
+            self._ui(lambda k=key, t=text: self.analysis_view.update_pick_analysis(k, t))
 
     def _on_analysis_error(self, exc: Exception) -> None:
         """Llamado en el hilo principal si el análisis falla."""

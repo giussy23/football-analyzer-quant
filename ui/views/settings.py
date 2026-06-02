@@ -1,4 +1,4 @@
-"""
+﻿"""
 ui/views/settings.py — Vista Settings: Telegram, parámetros de estrategia.
 """
 
@@ -22,6 +22,7 @@ class SettingsView(ctk.CTkScrollableFrame):
 
     def _build(self):
         self._build_odds_api()
+        self._build_claude_api()
         self._build_telegram()
         self._build_combo_settings()
         self._build_info()
@@ -66,7 +67,7 @@ class SettingsView(ctk.CTkScrollableFrame):
         ctk.CTkButton(
             btn_row, text="Probar API Key",
             command=self._test_odds_api,
-            fg_color="#1f3357",
+            fg_color="#0a2210",
         ).pack(side="left")
         ctk.CTkButton(
             btn_row, text="Guardar",
@@ -78,7 +79,57 @@ class SettingsView(ctk.CTkScrollableFrame):
         ctk.CTkLabel(
             tb,
             text="👉  Regístrate gratis en:  the-odds-api.com",
-            text_color="#3b82f6", font=ctk.CTkFont(size=11),
+            text_color="#22c55e", font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(8, 0))
+
+    def _build_claude_api(self):
+        card = make_card(self, "🧠 Claude IA — Análisis narrativo de picks")
+        card.pack(fill="x", pady=(0, 10))
+
+        tb = ctk.CTkFrame(card, fg_color="transparent")
+        tb.pack(fill="x", padx=12, pady=(0, 12))
+
+        ctk.CTkLabel(
+            tb,
+            text="Genera análisis en lenguaje natural para cada pick VERDE/AMARILLO tras el análisis",
+            text_color="#22c55e", font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(0, 10))
+
+        ctk.CTkLabel(tb, text="API Key (Anthropic)", text_color="#98d4aa").pack(anchor="w")
+        self.anthropic_key_entry = ctk.CTkEntry(
+            tb, fg_color="#091408", border_color="#2dd45b", text_color="#f0fff4",
+            show="*",
+            placeholder_text="sk-ant-api03-...",
+        )
+        self.anthropic_key_entry.pack(fill="x", pady=(4, 10))
+        saved_key = self.app.storage.get_setting("anthropic_api_key", "")
+        if saved_key:
+            self.anthropic_key_entry.insert(0, saved_key)
+
+        ctk.CTkCheckBox(
+            tb,
+            text="Activar análisis IA con Claude tras cada Run Analysis",
+            variable=self.app.use_claude_analysis,
+            text_color="#f0fff4", fg_color="#22c55e",
+        ).pack(anchor="w", pady=(0, 10))
+
+        btn_row = ctk.CTkFrame(tb, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(0, 4))
+        ctk.CTkButton(
+            btn_row, text="Probar API Key",
+            command=self._test_claude_api,
+            fg_color="#0a2210",
+        ).pack(side="left")
+        ctk.CTkButton(
+            btn_row, text="Guardar",
+            command=self.app.save_settings,
+            fg_color="#22c55e",
+        ).pack(side="left", padx=8)
+
+        ctk.CTkLabel(
+            tb,
+            text="👉  Consigue tu API key gratuita en:  console.anthropic.com",
+            text_color="#22c55e", font=ctk.CTkFont(size=11),
         ).pack(anchor="w", pady=(8, 0))
 
     def _build_telegram(self):
@@ -130,7 +181,7 @@ class SettingsView(ctk.CTkScrollableFrame):
         ctk.CTkButton(
             btn_row, text="Test Telegram",
             command=self._test_telegram,
-            fg_color="#1f3357",
+            fg_color="#0a2210",
         ).pack(side="left")
         ctk.CTkButton(
             btn_row, text="Guardar",
@@ -166,6 +217,20 @@ class SettingsView(ctk.CTkScrollableFrame):
             "• Filtros: overround, CLV, muestra mínima\n"
             "• Módulos separados: core/, ui/"
         )
+
+    # ── Claude / Anthropic helpers ─────────────────────────────────────────────
+
+    def get_anthropic_api_key(self) -> str:
+        return self.anthropic_key_entry.get().strip()
+
+    def _test_claude_api(self):
+        from ...core.ai_analysis import validate_anthropic_key
+        key = self.get_anthropic_api_key()
+        ok, msg = validate_anthropic_key(key)
+        if ok:
+            messagebox.showinfo("Claude IA", msg)
+        else:
+            messagebox.showerror("Claude IA", msg)
 
     # ── Telegram helpers ───────────────────────────────────────────────────────
 
