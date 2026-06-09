@@ -495,14 +495,7 @@ class QuinielaView(ctk.CTkFrame):
             fg_color="#0a1a2a", hover_color="#0e2a3e", height=32, corner_radius=8,
             font=ctk.CTkFont(size=11),
         )
-        self._ml_btn.pack(side="left", padx=3, pady=5)
-        ctk.CTkButton(
-            _grp_load, text="✏️ Manual",
-            command=self._open_manual_entry_dialog,
-            fg_color="#1a1a0a", hover_color="#2a2a12",
-            border_color="#eab308", border_width=1, height=32, corner_radius=8,
-            text_color="#fde047", font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=(3, 8), pady=5)
+        self._ml_btn.pack(side="left", padx=(3, 8), pady=5)
 
         # Grupo IA — ⚡ Picks IA · 🧠 IA Profundo
         _grp_ai = ctk.CTkFrame(ctrl, fg_color="#08041a", corner_radius=10,
