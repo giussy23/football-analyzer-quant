@@ -461,46 +461,25 @@ class QuinielaView(ctk.CTkFrame):
             border_color=BORDER, border_width=1,
         )
         ctrl.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ctrl.grid_columnconfigure(1, weight=1)  # status label expands
 
-        # ── FILA 0: Título + grupos de botones ────────────────────────────────
-        title_frame = ctk.CTkFrame(ctrl, fg_color="transparent")
-        title_frame.grid(row=0, column=0, sticky="w", padx=(14, 0), pady=(10, 2))
+        # ═══════════════════════════════════════════════════════════════════════
+        # FILA 0 — pack horizontal: título izq · grupos de botones der
+        # Usar pack (no grid) evita que columnas con weight=1 empujen los botones
+        # fuera de la pantalla.
+        # ═══════════════════════════════════════════════════════════════════════
+        row0 = ctk.CTkFrame(ctrl, fg_color="transparent")
+        row0.pack(fill="x", padx=10, pady=(8, 2))
+
+        # Título — izquierda
         ctk.CTkLabel(
-            title_frame, text="⚽",
-            font=ctk.CTkFont(size=22),
-        ).pack(side="left")
-        ctk.CTkLabel(
-            title_frame, text="Quiniela IA",
+            row0, text="⚽  Quiniela IA",
             text_color=TEXT, font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(side="left", padx=(4, 0))
 
-        # Grupo CARGAR — 📋 Jornada · 🔬 ML · ✏️ Manual
-        _grp_load = ctk.CTkFrame(ctrl, fg_color="#050d06", corner_radius=10,
-                                  border_color="#1a4d2a", border_width=1)
-        _grp_load.grid(row=0, column=2, padx=(6, 4), pady=8, sticky="e")
-        ctk.CTkLabel(
-            _grp_load, text="CARGAR", text_color="#2d6a3e",
-            font=ctk.CTkFont(size=9, weight="bold"),
-        ).pack(side="left", padx=(8, 2))
-        ctk.CTkButton(
-            _grp_load, text="📋 Jornada",
-            command=self.load_official,
-            fg_color="#0a2210", hover_color="#0f2e14", height=32, corner_radius=8,
-            font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=3, pady=5)
-        self._ml_btn = ctk.CTkButton(
-            _grp_load, text="🔬 ML",
-            command=self._start_direct_ml,
-            fg_color="#0a1a2a", hover_color="#0e2a3e", height=32, corner_radius=8,
-            font=ctk.CTkFont(size=11),
-        )
-        self._ml_btn.pack(side="left", padx=(3, 8), pady=5)
-
-        # Grupo IA — ⚡ Picks IA · 🧠 IA Profundo
-        _grp_ai = ctk.CTkFrame(ctrl, fg_color="#08041a", corner_radius=10,
+        # Grupo IA — derecha (pack PRIMERO = queda más a la derecha)
+        _grp_ai = ctk.CTkFrame(row0, fg_color="#08041a", corner_radius=10,
                                 border_color="#3b1f6e", border_width=1)
-        _grp_ai.grid(row=0, column=3, padx=(0, 4), pady=8, sticky="e")
+        _grp_ai.pack(side="right", padx=(4, 0))
         ctk.CTkLabel(
             _grp_ai, text="IA", text_color="#4c2a8a",
             font=ctk.CTkFont(size=9, weight="bold"),
@@ -528,43 +507,38 @@ class QuinielaView(ctk.CTkFrame):
             font=ctk.CTkFont(size=11),
         ).pack(side="left", padx=(3, 8), pady=5)
 
-        # ── FILA 1: Status + Dobles + Acciones secundarias ────────────────────
-        self.status_lbl = ctk.CTkLabel(
-            ctrl,
-            text="📋  Pulsa 'Jornada' para cargar la jornada oficial de La Quiniela",
-            text_color=MUTED, font=ctk.CTkFont(size=11),
-            wraplength=0, anchor="w",
-        )
-        self.status_lbl.grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 4), sticky="ew")
-
-        # Sub-frame dobles
-        doubles_bar = ctk.CTkFrame(ctrl, fg_color="transparent")
-        doubles_bar.grid(row=1, column=2, sticky="ew", padx=(6, 4), pady=(0, 4))
+        # Grupo CARGAR — derecha (pack SEGUNDO = queda entre título y grupo IA)
+        _grp_load = ctk.CTkFrame(row0, fg_color="#050d06", corner_radius=10,
+                                  border_color="#1a4d2a", border_width=1)
+        _grp_load.pack(side="right", padx=(0, 6))
         ctk.CTkLabel(
-            doubles_bar, text="Dobles:",
-            text_color=MUTED, font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=(0, 6))
-        self._doubles_val_lbl = ctk.CTkLabel(
-            doubles_bar, text="Auto",
-            text_color=TEXT, font=ctk.CTkFont(size=11, weight="bold"), width=90, anchor="w",
+            _grp_load, text="CARGAR", text_color="#2d6a3e",
+            font=ctk.CTkFont(size=9, weight="bold"),
+        ).pack(side="left", padx=(8, 2))
+        ctk.CTkButton(
+            _grp_load, text="📋 Jornada",
+            command=self.load_official,
+            fg_color="#0a2210", hover_color="#0f2e14", height=32, corner_radius=8,
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=3, pady=5)
+        self._ml_btn = ctk.CTkButton(
+            _grp_load, text="🔬 ML",
+            command=self._start_direct_ml,
+            fg_color="#0a1a2a", hover_color="#0e2a3e", height=32, corner_radius=8,
+            font=ctk.CTkFont(size=11),
         )
-        self._doubles_val_lbl.pack(side="left")
-        ctk.CTkSlider(
-            doubles_bar, from_=0, to=7, number_of_steps=7,
-            variable=self._n_doubles,
-            command=self._on_doubles_change,
-            width=160,
-        ).pack(side="left", padx=(0, 6))
-        self._doubles_cost_lbl = ctk.CTkLabel(
-            doubles_bar, text="",
-            text_color=MUTED, font=ctk.CTkFont(size=10),
-        )
-        self._doubles_cost_lbl.pack(side="left")
+        self._ml_btn.pack(side="left", padx=(3, 8), pady=5)
 
-        # Grupo ACCIONES — Optimizar · Guardar · Exportar · Historial · Calibrar · Limpiar
-        _grp_act = ctk.CTkFrame(ctrl, fg_color="transparent")
-        _grp_act.grid(row=1, column=3, padx=(0, 10), pady=(0, 6), sticky="e")
+        # ═══════════════════════════════════════════════════════════════════════
+        # FILA 1 — Status izq · Dobles centro · Acciones der
+        # ═══════════════════════════════════════════════════════════════════════
+        row1 = ctk.CTkFrame(ctrl, fg_color="transparent")
+        row1.pack(fill="x", padx=10, pady=(0, 4))
+
+        # Acciones — derecha (pack primero = más a la derecha)
         _ACT_BTN = dict(height=28, corner_radius=8, font=ctk.CTkFont(size=10))
+        _grp_act = ctk.CTkFrame(row1, fg_color="transparent")
+        _grp_act.pack(side="right")
         ctk.CTkButton(
             _grp_act, text="🎯 Optimizar",
             command=self._open_optimizer_dialog,
@@ -600,17 +574,50 @@ class QuinielaView(ctk.CTkFrame):
             _grp_act, text="✖ Limpiar",
             command=self.clear_picks,
             fg_color="#1a0a0a", hover_color="#2a0f0f", **_ACT_BTN,
-        ).pack(side="left", padx=(2, 0))
+        ).pack(side="left", padx=(2, 4))
 
-        # ── FILA 2: Panel de distribución 1/X/2 + inteligencia de jornada ─────
+        # Dobles — derecha (pack segundo = queda entre status y acciones)
+        doubles_bar = ctk.CTkFrame(row1, fg_color="transparent")
+        doubles_bar.pack(side="right", padx=(0, 12))
+        ctk.CTkLabel(
+            doubles_bar, text="Dobles:",
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=(0, 5))
+        self._doubles_val_lbl = ctk.CTkLabel(
+            doubles_bar, text="Auto",
+            text_color=TEXT, font=ctk.CTkFont(size=11, weight="bold"), width=80, anchor="w",
+        )
+        self._doubles_val_lbl.pack(side="left")
+        ctk.CTkSlider(
+            doubles_bar, from_=0, to=7, number_of_steps=7,
+            variable=self._n_doubles,
+            command=self._on_doubles_change,
+            width=150,
+        ).pack(side="left", padx=(0, 5))
+        self._doubles_cost_lbl = ctk.CTkLabel(
+            doubles_bar, text="",
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+        )
+        self._doubles_cost_lbl.pack(side="left")
+
+        # Status — izquierda, fill para ocupar el espacio restante
+        self.status_lbl = ctk.CTkLabel(
+            row1,
+            text="📋  Pulsa 'Jornada' para cargar la jornada oficial",
+            text_color=MUTED, font=ctk.CTkFont(size=11), anchor="w",
+        )
+        self.status_lbl.pack(side="left", fill="x", expand=True)
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # FILA 2 — Patrón 1/X/2 + inteligencia de jornada
+        # ═══════════════════════════════════════════════════════════════════════
         dist_bar = ctk.CTkFrame(ctrl, fg_color="#030a04", corner_radius=8)
-        dist_bar.grid(row=2, column=0, columnspan=4, sticky="ew", padx=10, pady=(0, 8))
-        dist_bar.grid_columnconfigure(5, weight=1)
+        dist_bar.pack(fill="x", padx=10, pady=(0, 8))
 
         ctk.CTkLabel(
             dist_bar, text="Patrón 1/X/2:",
             text_color=MUTED, font=ctk.CTkFont(size=10, weight="bold"),
-        ).grid(row=0, column=0, padx=(10, 8), pady=6, sticky="w")
+        ).pack(side="left", padx=(10, 6), pady=6)
 
         _dist_config = [
             ("1", "1 Local",  "5–9",  "#22c55e"),
@@ -618,19 +625,18 @@ class QuinielaView(ctk.CTkFrame):
             ("2", "2 Visita", "2–5",  "#60a5fa"),
         ]
         self._dist_labels: dict[str, ctk.CTkLabel] = {}
-        for col_idx, (key, name, rng, col) in enumerate(_dist_config, start=1):
+        for key, name, rng, col in _dist_config:
             card = ctk.CTkFrame(dist_bar, fg_color="#050e1c", corner_radius=6)
-            card.grid(row=0, column=col_idx, padx=4, pady=4, sticky="ew")
-            dist_bar.grid_columnconfigure(col_idx, weight=0)
+            card.pack(side="left", padx=3, pady=4)
             inner = ctk.CTkFrame(card, fg_color="transparent")
-            inner.pack(padx=8, pady=4)
+            inner.pack(padx=8, pady=3)
             ctk.CTkLabel(
                 inner, text=name,
                 text_color=col, font=ctk.CTkFont(size=10, weight="bold"),
-            ).pack(side="left", padx=(0, 6))
+            ).pack(side="left", padx=(0, 5))
             val_lbl = ctk.CTkLabel(
                 inner, text="—",
-                text_color=MUTED, font=ctk.CTkFont(size=16, weight="bold"),
+                text_color=MUTED, font=ctk.CTkFont(size=15, weight="bold"),
             )
             val_lbl.pack(side="left")
             ctk.CTkLabel(
@@ -639,18 +645,18 @@ class QuinielaView(ctk.CTkFrame):
             ).pack(side="left")
             self._dist_labels[key] = val_lbl
 
-        # Inteligencia de jornada — resumen IA ("8 claros · 4 dudosos")
+        # Inteligencia de jornada
         self._jornada_intel_lbl = ctk.CTkLabel(
             dist_bar, text="",
             text_color="#64748b", font=ctk.CTkFont(size=10),
         )
-        self._jornada_intel_lbl.grid(row=0, column=4, padx=(12, 4), pady=6, sticky="w")
+        self._jornada_intel_lbl.pack(side="left", padx=(14, 0), pady=6)
 
         ctk.CTkLabel(
             dist_bar,
             text="Verde = rango  ·  Amarillo = ±1  ·  Rojo = lejos",
             text_color="#2d4a32", font=ctk.CTkFont(size=9),
-        ).grid(row=0, column=5, padx=(8, 12), pady=6, sticky="e")
+        ).pack(side="right", padx=(0, 12), pady=6)
 
     def _build_table(self) -> None:
         # Estilo Treeview oscuro
