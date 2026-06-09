@@ -1,9 +1,12 @@
-﻿"""
+# © 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.
+# AlphaBet v15.0 — Software de uso privado. Prohibida su distribución sin autorización expresa.
+"""
 ui/views/settings.py — Vista Settings: Telegram, parámetros de estrategia.
 """
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from tkinter import messagebox
 
@@ -22,7 +25,11 @@ class SettingsView(ctk.CTkScrollableFrame):
 
     def _build(self):
         self._build_odds_api()
+        self._build_line_monitor()
+        self._build_bankroll()
         self._build_claude_api()
+        self._build_injury_api()
+        self._build_betfair_api()
         self._build_telegram()
         self._build_combo_settings()
         self._build_info()
@@ -82,6 +89,119 @@ class SettingsView(ctk.CTkScrollableFrame):
             text_color="#22c55e", font=ctk.CTkFont(size=11),
         ).pack(anchor="w", pady=(8, 0))
 
+    def _build_line_monitor(self):
+        card = make_card(self, "📡 Monitor de Líneas — Configuración")
+        card.pack(fill="x", pady=(0, 10))
+
+        tb = ctk.CTkFrame(card, fg_color="transparent")
+        tb.pack(fill="x", padx=12, pady=(0, 12))
+
+        ctk.CTkLabel(
+            tb,
+            text=(
+                "Detecta steam moves (dinero sharp) y movimientos de línea en tiempo real.\n"
+                "Usa la misma API key de The Odds API configurada arriba. Sin coste adicional."
+            ),
+            text_color=MUTED, font=ctk.CTkFont(size=11), justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Intervalo de poll
+        ctk.CTkLabel(
+            tb, text="Intervalo de polling (minutos):", text_color=MUTED,
+        ).pack(anchor="w")
+        self._poll_interval_slider = ctk.CTkSlider(
+            tb, from_=2, to=15, number_of_steps=13,
+        )
+        saved_interval = int(self.app.storage.get_setting("line_poll_interval", "5"))
+        self._poll_interval_slider.set(saved_interval)
+        self._poll_interval_slider.pack(fill="x", pady=(4, 2))
+
+        self._poll_interval_lbl = ctk.CTkLabel(
+            tb, text=f"{saved_interval} min", text_color=MUTED,
+        )
+        self._poll_interval_lbl.pack(anchor="w")
+        self._poll_interval_slider.configure(
+            command=lambda v: self._poll_interval_lbl.configure(text=f"{int(v)} min")
+        )
+
+        # Umbral de steam
+        ctk.CTkLabel(
+            tb, text="Umbral steam (% caída en prob):", text_color=MUTED,
+        ).pack(anchor="w", pady=(6, 0))
+        self._steam_thresh_slider = ctk.CTkSlider(
+            tb, from_=1.0, to=5.0, number_of_steps=8,
+        )
+        saved_thresh = float(self.app.storage.get_setting("steam_threshold_pct", "2.5"))
+        self._steam_thresh_slider.set(saved_thresh)
+        self._steam_thresh_slider.pack(fill="x", pady=(4, 2))
+
+        self._steam_thresh_lbl = ctk.CTkLabel(
+            tb, text=f"{saved_thresh:.1f}%", text_color=MUTED,
+        )
+        self._steam_thresh_lbl.pack(anchor="w")
+        self._steam_thresh_slider.configure(
+            command=lambda v: self._steam_thresh_lbl.configure(text=f"{float(v):.1f}%")
+        )
+
+        # Guardar
+        ctk.CTkButton(
+            tb, text="Guardar configuración del monitor",
+            command=self._save_monitor_settings,
+            fg_color=ACCENT,
+        ).pack(anchor="w", pady=(10, 0))
+
+    def _save_monitor_settings(self) -> None:
+        interval = int(self._poll_interval_slider.get())
+        thresh   = float(self._steam_thresh_slider.get())
+        self.app.storage.set_setting("line_poll_interval", interval)
+        self.app.storage.set_setting("steam_threshold_pct", thresh)
+        from tkinter import messagebox
+        messagebox.showinfo("Monitor", f"Guardado: poll cada {interval} min, steam ≥ {thresh:.1f}%")
+
+    def _build_bankroll(self):
+        card = make_card(self, "💰 Banca — P&L en euros reales")
+        card.pack(fill="x", pady=(0, 10))
+
+        tb = ctk.CTkFrame(card, fg_color="transparent")
+        tb.pack(fill="x", padx=12, pady=(0, 12))
+
+        ctk.CTkLabel(
+            tb,
+            text=(
+                "Configura tu banca total en euros. El Tracker de Resultados mostrará\n"
+                "stake real y P&L en euros en lugar de unidades de banca."
+            ),
+            text_color=MUTED, font=ctk.CTkFont(size=11), justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        row = ctk.CTkFrame(tb, fg_color="transparent")
+        row.pack(anchor="w")
+
+        ctk.CTkLabel(row, text="Banca total:", text_color=MUTED, width=100).pack(side="left")
+        self._bankroll_entry = ctk.CTkEntry(
+            row, fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
+            placeholder_text="Ej: 1000", width=140,
+        )
+        self._bankroll_entry.pack(side="left", padx=(6, 8))
+        ctk.CTkLabel(row, text="€", text_color=TEXT,
+                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+
+        saved = self.app.storage.get_setting("bankroll_eur", "0")
+        if saved and saved != "0":
+            self._bankroll_entry.insert(0, saved)
+
+        ctk.CTkButton(
+            tb, text="Guardar banca",
+            command=self.app.save_settings,
+            fg_color=ACCENT, hover_color=ACCENT_2,
+        ).pack(anchor="w", pady=(10, 0))
+
+    def get_bankroll_eur(self) -> str:
+        try:
+            return self._bankroll_entry.get().strip()
+        except Exception:
+            return "0"
+
     def _build_claude_api(self):
         card = make_card(self, "🧠 Claude IA — Análisis narrativo de picks")
         card.pack(fill="x", pady=(0, 10))
@@ -115,11 +235,12 @@ class SettingsView(ctk.CTkScrollableFrame):
 
         btn_row = ctk.CTkFrame(tb, fg_color="transparent")
         btn_row.pack(fill="x", pady=(0, 4))
-        ctk.CTkButton(
+        self._claude_test_btn = ctk.CTkButton(
             btn_row, text="Probar API Key",
             command=self._test_claude_api,
             fg_color="#0a2210",
-        ).pack(side="left")
+        )
+        self._claude_test_btn.pack(side="left")
         ctk.CTkButton(
             btn_row, text="Guardar",
             command=self.app.save_settings,
@@ -132,32 +253,256 @@ class SettingsView(ctk.CTkScrollableFrame):
             text_color="#22c55e", font=ctk.CTkFont(size=11),
         ).pack(anchor="w", pady=(8, 0))
 
-    def _build_telegram(self):
-        card = make_card(self, "Execution Hub — Telegram")
+    def _build_injury_api(self):
+        card = make_card(self, "🩹 Lesiones en tiempo real — API-Football")
         card.pack(fill="x", pady=(0, 10))
 
         tb = ctk.CTkFrame(card, fg_color="transparent")
         tb.pack(fill="x", padx=12, pady=(0, 12))
 
+        ctk.CTkLabel(
+            tb,
+            text=(
+                "Plan gratuito · 100 peticiones/día · Sin tarjeta de crédito\n"
+                "Proporciona impacto real de lesiones por equipo en cada partido analizado."
+            ),
+            text_color=MUTED, font=ctk.CTkFont(size=11), justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        ctk.CTkLabel(tb, text="API Key (API-Football)", text_color=MUTED).pack(anchor="w")
+        self.injury_api_key_entry = ctk.CTkEntry(
+            tb, fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
+            show="*",
+            placeholder_text="Pega aquí tu API key de api-sports.io",
+        )
+        self.injury_api_key_entry.pack(fill="x", pady=(4, 10))
+        saved_key = self.app.storage.get_setting("injury_api_key", "")
+        if saved_key:
+            self.injury_api_key_entry.insert(0, saved_key)
+
+        ctk.CTkCheckBox(
+            tb,
+            text="Activar datos de lesiones en tiempo real al analizar",
+            variable=self.app.use_injury_api,
+            text_color=TEXT, fg_color=ACCENT,
+        ).pack(anchor="w", pady=(0, 10))
+
+        btn_row = ctk.CTkFrame(tb, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(0, 8))
+
+        self._inj_test_btn = ctk.CTkButton(
+            btn_row, text="Probar API Key",
+            command=self._test_injury_api,
+            fg_color="#0a2210",
+        )
+        self._inj_test_btn.pack(side="left")
+        ctk.CTkButton(
+            btn_row, text="Guardar",
+            command=self.app.save_settings,
+            fg_color=ACCENT,
+        ).pack(side="left", padx=8)
+
+        # Etiqueta de estado de la prueba
+        self._inj_status_lbl = ctk.CTkLabel(
+            tb, text="", text_color=MUTED, font=ctk.CTkFont(size=11),
+        )
+        self._inj_status_lbl.pack(anchor="w", pady=(4, 0))
+
+        ctk.CTkLabel(
+            tb,
+            text="👉  Regístrate gratis en:  dashboard.api-football.com",
+            text_color="#22c55e", font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(8, 0))
+
+    def _test_injury_api(self) -> None:
+        """Valida la API key de API-Football en un hilo de fondo."""
+        key = self.get_injury_api_key()
+        if not key:
+            messagebox.showwarning("Lesiones", "Introduce una API key primero.")
+            return
+
+        self._inj_test_btn.configure(state="disabled", text="Probando…")
+        self._inj_status_lbl.configure(text="Conectando con API-Football…", text_color=MUTED)
+
+        def _worker():
+            try:
+                import requests
+                resp = requests.get(
+                    "https://v3.football.api-sports.io/status",
+                    headers={"x-apisports-key": key},
+                    timeout=10,
+                )
+                data = resp.json()
+                account = data.get("response", {}).get("account", {})
+                sub     = data.get("response", {}).get("subscription", {})
+                limit   = data.get("response", {}).get("requests", {})
+
+                remaining = limit.get("current", "?")
+                total_day = limit.get("limit_day", "?")
+                plan      = sub.get("plan", "?")
+                msg = f"✅ Conexión correcta\nPlan: {plan}\nPeticiones hoy: {remaining}/{total_day}"
+                ok  = True
+            except Exception as exc:
+                msg = f"❌ Error: {exc}"
+                ok  = False
+
+            def _show():
+                self._inj_test_btn.configure(state="normal", text="Probar API Key")
+                color = "#22c55e" if ok else "#ef4444"
+                self._inj_status_lbl.configure(text=msg, text_color=color)
+
+            self.after(0, _show)
+
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def get_injury_api_key(self) -> str:
+        return self.injury_api_key_entry.get().strip()
+
+    def _build_betfair_api(self):
+        card = make_card(self, "🟢 Betfair Exchange — Auto-ejecución de apuestas")
+        card.pack(fill="x", pady=(0, 10))
+
+        tb = ctk.CTkFrame(card, fg_color="transparent")
+        tb.pack(fill="x", padx=16, pady=(0, 12))
+
+        ctk.CTkLabel(
+            tb,
+            text=(
+                "⚠️  Coloca apuestas REALES directamente en Betfair Exchange.\n"
+                "Necesitas una cuenta Betfair y una Developer App Key.\n"
+                "Obtén tu clave en: betfair.com → Cuenta → API Developers → Developer App Keys"
+            ),
+            text_color=MUTED, font=ctk.CTkFont(size=11), justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        ctk.CTkLabel(tb, text="App Key (Developer)", text_color=MUTED).pack(anchor="w")
+        self.betfair_app_key_entry = ctk.CTkEntry(
+            tb, fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
+            show="*",
+            placeholder_text="Tu Developer App Key de Betfair",
+        )
+        self.betfair_app_key_entry.pack(fill="x", pady=(4, 8))
+
+        ctk.CTkLabel(tb, text="Usuario Betfair", text_color=MUTED).pack(anchor="w")
+        self.betfair_username_entry = ctk.CTkEntry(
+            tb, fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
+            placeholder_text="tu@email.com o usuario Betfair",
+        )
+        self.betfair_username_entry.pack(fill="x", pady=(4, 8))
+
+        ctk.CTkLabel(tb, text="Contraseña Betfair", text_color=MUTED).pack(anchor="w")
+        self.betfair_password_entry = ctk.CTkEntry(
+            tb, fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
+            show="*",
+            placeholder_text="••••••••",
+        )
+        self.betfair_password_entry.pack(fill="x", pady=(4, 10))
+
+        # Cargar valores guardados
+        saved_ak = self.app.storage.get_setting("betfair_app_key", "")
+        saved_us = self.app.storage.get_setting("betfair_username", "")
+        saved_pw = self.app.storage.get_setting("betfair_password", "")
+        if saved_ak: self.betfair_app_key_entry.insert(0, saved_ak)
+        if saved_us: self.betfair_username_entry.insert(0, saved_us)
+        if saved_pw: self.betfair_password_entry.insert(0, saved_pw)
+
+        btn_row = ctk.CTkFrame(tb, fg_color="transparent")
+        btn_row.pack(fill="x")
+        ctk.CTkButton(
+            btn_row, text="🔗  Probar conexión",
+            command=self._test_betfair_login,
+            fg_color="#064e3b", hover_color="#065f46",
+            height=32, corner_radius=8,
+        ).pack(side="left", padx=(0, 8))
+        self._betfair_status_lbl = ctk.CTkLabel(
+            btn_row, text="", text_color=MUTED, font=ctk.CTkFont(size=11)
+        )
+        self._betfair_status_lbl.pack(side="left")
+
+    def _test_betfair_login(self) -> None:
+        """Prueba las credenciales de Betfair en un hilo de fondo."""
+        ak = self.get_betfair_app_key()
+        us = self.get_betfair_username()
+        pw = self.get_betfair_password()
+        if not ak or not us or not pw:
+            self._betfair_status_lbl.configure(
+                text="Completa App Key, usuario y contraseña.", text_color="#f87171"
+            )
+            return
+
+        self._betfair_status_lbl.configure(text="Conectando...", text_color="#facc15")
+
+        def _worker():
+            try:
+                from ...core.betfair import BetfairClient
+                client = BetfairClient(ak, us, pw)
+                ok, msg = client.login()
+                if ok:
+                    balance = client.get_balance()
+                    bal_str = f"  |  Saldo: €{balance:.2f}" if balance is not None else ""
+                    self._betfair_status_lbl.configure(
+                        text=f"✅ Conectado{bal_str}", text_color="#4ade80"
+                    )
+                else:
+                    self._betfair_status_lbl.configure(text=msg, text_color="#f87171")
+            except Exception as exc:
+                self._betfair_status_lbl.configure(
+                    text=f"Error: {exc}", text_color="#f87171"
+                )
+
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def get_betfair_app_key(self) -> str:
+        return self.betfair_app_key_entry.get().strip()
+
+    def get_betfair_username(self) -> str:
+        return self.betfair_username_entry.get().strip()
+
+    def get_betfair_password(self) -> str:
+        return self.betfair_password_entry.get()
+
+    def _build_telegram(self):
+        card = make_card(self, "📲 Telegram — Bot interactivo + notificaciones")
+        card.pack(fill="x", pady=(0, 10))
+
+        tb = ctk.CTkFrame(card, fg_color="transparent")
+        tb.pack(fill="x", padx=12, pady=(0, 12))
+
+        # ── Credenciales ──────────────────────────────────────────────────────
+        ctk.CTkLabel(
+            tb,
+            text="Crea tu bot en @BotFather (Telegram) y pega el token aquí",
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(0, 8))
+
         ctk.CTkLabel(tb, text="Bot Token", text_color=MUTED).pack(anchor="w")
         self.token_entry = ctk.CTkEntry(
             tb, fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
-            show="*",
+            show="*", placeholder_text="123456789:AAxxxxxx…",
         )
         self.token_entry.pack(fill="x", pady=(4, 10))
         token = self.app.storage.get_setting("telegram_token", "")
         if token:
             self.token_entry.insert(0, token)
 
+        ctk.CTkLabel(
+            tb,
+            text="Chat ID (para notificaciones automáticas — opcional con el bot)",
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(0, 2))
         ctk.CTkLabel(tb, text="Chat ID", text_color=MUTED).pack(anchor="w")
         self.chat_entry = ctk.CTkEntry(
             tb, fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
+            placeholder_text="p. ej. -100123456789",
         )
         self.chat_entry.pack(fill="x", pady=(4, 10))
         chat_id = self.app.storage.get_setting("telegram_chat_id", "")
         if chat_id:
             self.chat_entry.insert(0, chat_id)
 
+        # ── Opciones de notificación ──────────────────────────────────────────
         flags = ctk.CTkFrame(tb, fg_color="transparent")
         flags.pack(fill="x", pady=(0, 8))
         ctk.CTkCheckBox(
@@ -166,7 +511,7 @@ class SettingsView(ctk.CTkScrollableFrame):
             text_color=TEXT, fg_color=ACCENT,
         ).pack(anchor="w", pady=2)
         ctk.CTkCheckBox(
-            flags, text="Enviar combinada",
+            flags, text="Enviar combinada al Chat ID",
             variable=self.app.send_combo_enabled,
             text_color=TEXT, fg_color=ACCENT,
         ).pack(anchor="w", pady=2)
@@ -176,10 +521,11 @@ class SettingsView(ctk.CTkScrollableFrame):
             text_color=TEXT, fg_color=ACCENT,
         ).pack(anchor="w", pady=2)
 
+        # ── Botones de notificación ───────────────────────────────────────────
         btn_row = ctk.CTkFrame(tb, fg_color="transparent")
-        btn_row.pack(fill="x")
+        btn_row.pack(fill="x", pady=(0, 12))
         ctk.CTkButton(
-            btn_row, text="Test Telegram",
+            btn_row, text="Test envío",
             command=self._test_telegram,
             fg_color="#0a2210",
         ).pack(side="left")
@@ -188,6 +534,65 @@ class SettingsView(ctk.CTkScrollableFrame):
             command=self.app.save_settings,
             fg_color=ACCENT,
         ).pack(side="left", padx=8)
+
+        # ── Separador ─────────────────────────────────────────────────────────
+        ctk.CTkFrame(tb, fg_color="#1a3d22", height=1).pack(fill="x", pady=(0, 12))
+
+        # ── Bot interactivo ───────────────────────────────────────────────────
+        ctk.CTkLabel(
+            tb, text="🤖  Bot interactivo",
+            text_color=TEXT, font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", pady=(0, 4))
+
+        ctk.CTkLabel(
+            tb,
+            text=(
+                "El bot escucha comandos de cualquier usuario que le escriba.\n"
+                "Comandos disponibles: /combinadas · /picks · /estado · /quiniela · /ayuda"
+            ),
+            text_color=MUTED, font=ctk.CTkFont(size=11), justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        # Estado del bot
+        status_row = ctk.CTkFrame(tb, fg_color="transparent")
+        status_row.pack(fill="x", pady=(0, 8))
+
+        self._bot_status_lbl = ctk.CTkLabel(
+            status_row, text="🔴  Bot detenido",
+            text_color="#ef4444", font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self._bot_status_lbl.pack(side="left")
+
+        # Botones start / stop
+        bot_btns = ctk.CTkFrame(tb, fg_color="transparent")
+        bot_btns.pack(fill="x")
+
+        self._start_bot_btn = ctk.CTkButton(
+            bot_btns, text="▶  Iniciar Bot",
+            command=self.app.start_telegram_bot,
+            fg_color="#166534", hover_color="#14532d",
+            width=130,
+        )
+        self._start_bot_btn.pack(side="left")
+
+        self._stop_bot_btn = ctk.CTkButton(
+            bot_btns, text="⏹  Detener Bot",
+            command=self.app.stop_telegram_bot,
+            fg_color="#991b1b", hover_color="#7f1d1d",
+            width=130, state="disabled",
+        )
+        self._stop_bot_btn.pack(side="left", padx=8)
+
+        # ── Log de actividad del bot ──────────────────────────────────────────
+        ctk.CTkLabel(
+            tb, text="Actividad del bot:",
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(10, 2))
+
+        self._bot_log = make_textbox(tb, height=90)
+        self._bot_log.pack(fill="x")
+        self._bot_log.configure(state="disabled")
+        self._bot_log_lines: list[str] = []
 
     def _build_combo_settings(self):
         card = make_card(self, "Combo Builder — Configuración")
@@ -206,31 +611,146 @@ class SettingsView(ctk.CTkScrollableFrame):
         card = make_card(self, "Información del sistema")
         card.pack(fill="x")
 
-        info = make_textbox(card, height=120)
+        info = make_textbox(card, height=520)
         info.pack(fill="x", padx=12, pady=(0, 12))
         info.insert(
             "end",
-            "Football Analyzer Quant Pro v10.0\n"
-            "• Walk-forward OOS validation (sin data-leakage)\n"
-            "• Modelo serializado con joblib (no reentrena innecesariamente)\n"
-            "• Kelly fraccionado 0.20, cap 1.5%\n"
-            "• Filtros: overround, CLV, muestra mínima\n"
-            "• Módulos separados: core/, ui/"
+            "AlphaBet  ·  v15.0\n"
+            "© 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.\n"
+            "Software de uso privado. Prohibida su distribución sin autorización expresa.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "\n"
+            "▌ MODELO ML — 116 FEATURES\n"
+            "  • 3 modelos: HistGradientBoosting (1X2) · GradientBoosting (Over 2.5) · RandomForest (goles)\n"
+            "  • Calibración isotónica (CalibratedClassifierCV cv=3) — probabilidades reales\n"
+            "  • Ensemble 60/40 ML + Dixon-Coles Poisson con corrección rho\n"
+            "  • Walk-forward OOS: 5 ventanas deslizantes sin data-leakage\n"
+            "  • Modelos por liga (si ≥ 300 partidos) con fallback al modelo global\n"
+            "  • SHAP values por predicción — tooltip con top-5 features en Trading Desk\n"
+            "  • Drift detection: alerta si EV actual desvía > 2σ del ROI del backtest\n"
+            "  • Brier Score OOS registrado por modelo y liga\n"
+            "\n"
+            "▌ FEATURES INCLUIDAS\n"
+            "  • Estadísticas de equipo: forma reciente, rachas win/loss/unbeaten\n"
+            "  • Club ELO (clubelo.com) — diferencia ELO, probabilidad implícita\n"
+            "  • xG histórico (Understat) — temporada anterior home/away como feature\n"
+            "  • Días de descanso y ventaja de recuperación\n"
+            "  • Tendencias del árbitro (amarillas/rojas pg, % victoria local, % over)\n"
+            "  • Consenso multi-casa: normalización no-vig sobre hasta 8 bookmakers\n"
+            "  • Weather (Open-Meteo, gratis): lluvia, viento, temperatura — influye en over/under\n"
+            "  • Alineaciones (ESPN, gratis): bajas de titulares como penalización de prob\n"
+            "\n"
+            "▌ GESTIÓN DE BANKROLL\n"
+            "  • Kelly fraccionado (fracción 0.20, cap 1.5% por pick)\n"
+            "  • CLV tracking: opening odds vs closing odds — registrado al liquidar cada pick\n"
+            "  • Monte Carlo simulator: 5 000 simulaciones, bandas percentil 10/25/50/75/90\n"
+            "    P(ruina), P(drawdown > 20%), P(drawdown > 50%), ROI mediano esperado\n"
+            "  • Pinnacle como referencia sharp para fair odds\n"
+            "\n"
+            "▌ TRADING DESK (📊)\n"
+            "  • Tabla de picks con edge, EV, fiabilidad 0-99, semáforo VERDE/AMARILLO/ROJO\n"
+            "  • Filtros: edge mínimo, mercado, liga, cuota\n"
+            "  • Tooltip SHAP por fila — top-5 features que empujaron la predicción\n"
+            "  • Banner de drift si el modelo underperforma respecto al backtest\n"
+            "  • Backtest OOS por liga con ROI ± σ y nº de apuestas\n"
+            "\n"
+            "▌ COMBINADAS IA (⚡)\n"
+            "  • Modo Inteligente (EV): triple filtro ML + Double Chance + Consenso\n"
+            "  • Modo Seguras (🛡): solo DC + Goles, optimiza tasa de acierto\n"
+            "  • Apuesta RECOMENDADA: cuota 1.40-2.20, máximo 2 patas, análisis profundo\n"
+            "  • Hasta 4 patas con correlación controlada\n"
+            "\n"
+            "▌ QUINIELA IA (⚽)\n"
+            "  • Scraper de jornada oficial SELAE (resultados-futbol.com)\n"
+            "  • Jerarquía de predicción: ML → The Odds API → Club ELO → ELO nacional\n"
+            "  • Selector de dobles (0-7) con asignación óptima por incertidumbre\n"
+            "  • Corrección de sesgo de empate (+5%)\n"
+            "  • Exportación a .txt con picks + combinaciones + coste\n"
+            "\n"
+            "▌ MONITOR DE LÍNEAS (🔔)\n"
+            "  • Steam detection: alerta si la prob implícita cae ≥ 2.5% en < 1 polling\n"
+            "  • Alertas proactivas: push Telegram cuando aparece pick nuevo con edge > umbral\n"
+            "  • Polling configurable: 2-15 minutos\n"
+            "  • Historial en SQLite\n"
+            "\n"
+            "▌ ALINEACIONES PRE-PARTIDO\n"
+            "  • Fuente: ESPN API pública — sin registro, sin API key\n"
+            "  • Cobertura: Premier League, LaLiga, Serie A, Bundesliga, Ligue 1\n"
+            "  • Disponibles ~1h antes del partido\n"
+            "  • Panel en Alertas con titular locales y visitantes + formación\n"
+            "\n"
+            "▌ AJUSTE DE BAJAS (panel manual)\n"
+            "  • Factores de impacto empíricos por rol y posición\n"
+            "  • Re-normalización de probabilidades al vuelo\n"
+            "\n"
+            "▌ RESULTADOS Y CLV (📊)\n"
+            "  • Results Tracker: picks guardados con estado PENDING/WIN/LOSS/VOID\n"
+            "  • CLV automático: introduce closing odds al liquidar → CLV calculado\n"
+            "  • KPIs: ROI real, strike rate, CLV medio, % picks CLV positivo\n"
+            "  • Columna CLV en tabla con semáforo verde/rojo\n"
+            "\n"
+            "▌ MANUAL SLIP / PORTFOLIO (🎯 / 📈)\n"
+            "  • Bet builder multi-leg estilo casa de apuestas\n"
+            "  • Cuota total en tiempo real, retorno estimado\n"
+            "  • Monte Carlo bankroll simulator integrado\n"
+            "  • Historial de simulaciones en SQLite\n"
+            "\n"
+            "▌ TELEGRAM BOT\n"
+            "  • /picks       — picks VERDE activos con edge, EV y fiabilidad\n"
+            "  • /combinadas  — hasta 3 combinadas con prob ML por leg + razonamiento\n"
+            "  • /quiniela    — jornada oficial con distribución y resumen de fuentes\n"
+            "  • /alertas on [N%] — activa alertas proactivas de valor con umbral\n"
+            "  • /estado      — ROI por liga, picks activos, último análisis\n"
+            "  • /refresh     — recarga datos desde la app\n"
+            "  • /debug       — estado interno del caché\n"
+            "  • Alertas automáticas: steam moves + alineaciones confirmadas\n"
+            "\n"
+            "▌ DATOS Y FUENTES\n"
+            "  • football-data.co.uk — histórico de partidos y cuotas (gratuito)\n"
+            "  • clubelo.com         — Club ELO para 5 ligas (gratuito)\n"
+            "  • understat.com       — xG por temporada (gratuito)\n"
+            "  • Open-Meteo          — meteorología (gratuito, sin API key)\n"
+            "  • ESPN API pública    — alineaciones (gratuito, sin API key)\n"
+            "  • The Odds API        — cuotas en tiempo real (plan de pago)\n"
+            "  • SELAE               — jornada oficial Quiniela (scraper)\n"
+            "\n"
+            "▌ STACK TÉCNICO\n"
+            "  • Python 3.14 · scikit-learn · pandas · numpy · joblib · shap · matplotlib\n"
+            "  • UI: customtkinter + tkinter (desktop Windows, glassmorphism)\n"
+            "  • DB: SQLite (settings, picks, combinadas, historial)\n"
+            "  • Python path: PYTHONPATH=C:\\Claude\\football_analyzer\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         )
+        info.configure(state="disabled")
 
     # ── Claude / Anthropic helpers ─────────────────────────────────────────────
 
     def get_anthropic_api_key(self) -> str:
         return self.anthropic_key_entry.get().strip()
 
-    def _test_claude_api(self):
-        from ...core.ai_analysis import validate_anthropic_key
+    def _test_claude_api(self) -> None:
+        """Valida la API key en un hilo de fondo para no congelar la UI."""
         key = self.get_anthropic_api_key()
-        ok, msg = validate_anthropic_key(key)
-        if ok:
-            messagebox.showinfo("Claude IA", msg)
-        else:
-            messagebox.showerror("Claude IA", msg)
+        if not key:
+            messagebox.showwarning("Claude IA", "Introduce una API key primero.")
+            return
+
+        self._claude_test_btn.configure(state="disabled", text="Probando...")
+
+        def _worker():
+            from ...core.ai_analysis import validate_anthropic_key
+            ok, msg = validate_anthropic_key(key)
+
+            def _show():
+                self._claude_test_btn.configure(state="normal", text="Probar API Key")
+                if ok:
+                    messagebox.showinfo("Claude IA", msg)
+                else:
+                    messagebox.showerror("Claude IA", msg)
+
+            self.app.after(0, _show)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     # ── Telegram helpers ───────────────────────────────────────────────────────
 
@@ -253,10 +773,45 @@ class SettingsView(ctk.CTkScrollableFrame):
         else:
             messagebox.showerror("The Odds API", msg)
 
+    def update_bot_status(self, running: bool) -> None:
+        """Actualiza el indicador visual del bot (llamado desde app.py)."""
+        if running:
+            self._bot_status_lbl.configure(
+                text="🟢  Bot en marcha — escuchando comandos",
+                text_color="#22c55e",
+            )
+            self._start_bot_btn.configure(state="disabled")
+            self._stop_bot_btn.configure(state="normal")
+        else:
+            self._bot_status_lbl.configure(
+                text="🔴  Bot detenido",
+                text_color="#ef4444",
+            )
+            self._start_bot_btn.configure(state="normal")
+            self._stop_bot_btn.configure(state="disabled")
+
+    def append_bot_log(self, msg: str) -> None:
+        """Añade una línea al log de actividad del bot (máx 6 líneas)."""
+        from datetime import datetime
+        ts = datetime.now().strftime("%H:%M:%S")
+        line = f"[{ts}] {msg}"
+        self._bot_log_lines.append(line)
+        # Mantener solo las últimas 6 líneas
+        if len(self._bot_log_lines) > 6:
+            self._bot_log_lines = self._bot_log_lines[-6:]
+        try:
+            self._bot_log.configure(state="normal")
+            self._bot_log.delete("1.0", "end")
+            self._bot_log.insert("end", "\n".join(self._bot_log_lines))
+            self._bot_log.configure(state="disabled")
+            self._bot_log.see("end")
+        except Exception:
+            pass
+
     def _test_telegram(self):
         try:
             self.app.send_telegram_text(
-                "Prueba correcta desde Football Analyzer Quant Pro v10.0"
+                "✅ Prueba correcta desde AlphaBet v15.0"
             )
             messagebox.showinfo("Telegram", "Mensaje de prueba enviado correctamente.")
         except Exception as exc:
