@@ -686,6 +686,35 @@ class PremiumApp(ctk.CTk):
             logger.debug("Logo: no se pudo teñir el fondo", exc_info=True)
             return False
 
+    def _render_header_banner(self) -> None:
+        """(Re)dibuja el banner hero del header con el glow del tema activo.
+
+        Usa el mismo generador que el fondo de aurora (glows gaussianos con la
+        paleta del tema) en formato franja ancha y corta. Funciona con todos
+        los temas — cada uno luce su propio acento."""
+        c = getattr(self, "_header_canvas", None)
+        if c is None or not c.winfo_exists():
+            return
+        from .core.themes import get_current_theme
+        t  = get_current_theme()
+        sw = self.winfo_screenwidth()
+        photo = self._make_aurora_image(sw, self._header_h, t)
+        c.configure(bg=t["bg"])
+        if photo is not None:
+            self._header_photo = photo   # mantener referencia viva
+            c.itemconfig(self._header_bg_item, image=photo)
+        c.itemconfig(self._header_title_item, fill=t["text"])
+        c.itemconfig(self._header_hint_item,  fill=t["accent"])
+        c.itemconfig(self._header_rule_item,  fill=t["border"])
+
+    def _set_header_text(self, title: str, hint: str) -> None:
+        """Actualiza el título y el subtítulo dibujados sobre el banner hero."""
+        c = getattr(self, "_header_canvas", None)
+        if c is None or not c.winfo_exists():
+            return
+        c.itemconfig(self._header_title_item, text=title)
+        c.itemconfig(self._header_hint_item,  text=hint)
+
     def _draw_logo_header(self, parent) -> tk.Canvas:
         """Logo galáctico: fondo PNG con nebulosa+estrellas + colas de cometa animadas."""
         import os
@@ -1018,25 +1047,28 @@ class PremiumApp(ctk.CTk):
         stage.grid_rowconfigure(2, weight=1)   # row 2 = content (expandable)
         stage.grid_columnconfigure(0, weight=1)
 
-        header = ctk.CTkFrame(stage, fg_color="transparent")
+        # ── Header hero: banner con resplandor del tema + título encima ───────
+        # Es la superficie grande, siempre visible y casi vacía donde el "arte"
+        # del tema (el glow de aurora) por fin se ve de frente. Canvas estable
+        # (sin overlay): imagen de glow + textos dibujados sobre ella.
+        HDR_H = 96
+        header = tk.Canvas(stage, height=HDR_H, highlightthickness=0, bd=0)
         header.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        header.grid_columnconfigure(0, weight=1)
-
-        self.view_title = ctk.CTkLabel(
-            header, text="Analysis", text_color="#f0fff4",
-            font=ctk.CTkFont(size=26, weight="bold"),
+        self._header_canvas = header
+        self._header_h      = HDR_H
+        self._header_bg_item = header.create_image(0, 0, anchor="nw")
+        self._header_title_item = header.create_text(
+            6, 40, anchor="w", text="Analysis",
+            font=("Segoe UI Semibold", 24, "bold"), fill="#f0fff4",
         )
-        self.view_title.grid(row=0, column=0, sticky="w")
-        self.view_hint = ctk.CTkLabel(
-            header, text="Solo próximos partidos, filtros y picks",
-            text_color="#4ade80",
-            font=ctk.CTkFont(size=11),
+        self._header_hint_item = header.create_text(
+            8, 70, anchor="w", text="Solo próximos partidos, filtros y picks",
+            font=("Segoe UI", 11), fill="#4ade80",
         )
-        self.view_hint.grid(row=1, column=0, sticky="w", pady=(2, 0))
-        # Separador visual bajo el header
-        tk.Frame(header, bg="#1a5c2a", height=1).grid(
-            row=2, column=0, sticky="ew", pady=(8, 0)
+        self._header_rule_item = header.create_line(
+            0, HDR_H - 1, 2000, HDR_H - 1, fill="#1a5c2a",
         )
+        self._render_header_banner()
 
         # ── Ticker de picks (flotando bajo el header) ─────────────────────────
         self._build_ticker(stage)   # ocupa row=1
@@ -1274,6 +1306,12 @@ class PremiumApp(ctk.CTk):
         except Exception:
             logger.debug("Excepción ignorada", exc_info=True)
 
+        # ── Banner hero del header con el glow del tema nuevo ─────────────────
+        try:
+            self._render_header_banner()
+        except Exception:
+            logger.debug("Excepción ignorada", exc_info=True)
+
         # ── Sidebar frame ──────────────────────────────────────────────────────
         if hasattr(self, "_sidebar"):
             self._sidebar.configure(
@@ -1402,8 +1440,7 @@ class PremiumApp(ctk.CTk):
                 font=ctk.CTkFont(size=12, weight="bold" if is_active else "normal"),
             )
         title, hint = self._NAV_META[active]
-        self.view_title.configure(text=title)
-        self.view_hint.configure(text=hint)
+        self._set_header_text(title, hint)
 
     def _hide_all(self) -> None:
         for v in [self.analysis_view, self.accumulator_view, self.quiniela_view,
