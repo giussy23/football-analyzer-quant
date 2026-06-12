@@ -435,20 +435,24 @@ class PremiumApp(ctk.CTk):
     # ── Style ─────────────────────────────────────────────────────────────────
 
     def _setup_style(self) -> None:
+        """Estilos ttk (Treeview) derivados del tema activo — se re-ejecuta
+        en cada apply_theme para que las tablas también cambien de color."""
+        from .core.themes import get_current_theme
+        t = get_current_theme()
         style = ttk.Style()
         style.theme_use("clam")
         style.configure(
             "Treeview",
-            background="#050e1c", fieldbackground="#050e1c",
-            foreground="#e0f2fe", rowheight=28,
+            background=t["card2"], fieldbackground=t["card2"],
+            foreground=t["text"], rowheight=28,
             font=("Segoe UI", 10),
         )
         style.configure(
             "Treeview.Heading",
-            background="#030a16", foreground="#e0f2fe",
+            background=t["card"], foreground=t["text"],
             font=("Segoe UI Semibold", 10),
         )
-        style.map("Treeview", background=[("selected", "#0e3a4a")])
+        style.map("Treeview", background=[("selected", t["nav_active_bg"])])
 
     # ── UI layout ─────────────────────────────────────────────────────────────
 
@@ -1049,15 +1053,22 @@ class PremiumApp(ctk.CTk):
 
     def apply_theme(self, theme_name: str, save: bool = True) -> None:
         """
-        Aplica un tema de color a la UI al instante.
-        Cambia: sidebar, nav buttons, run button y variables de config.
-        Los content views muestran el nuevo tema en el siguiente refresh.
+        Aplica un tema de color a TODA la UI al instante.
+
+        Tres capas (las vistas no necesitan cambios):
+        1. Repintado recursivo del árbol de widgets existente, mapeando cada
+           color de la paleta vieja a su equivalente en la nueva.
+        2. Propagación a los módulos cargados: las vistas importan los colores
+           por valor (`from config import ACCENT`), así que se actualizan esas
+           copias para que los widgets creados DESPUÉS usen el tema nuevo.
+        3. Estilos ttk (Treeview) regenerados desde el tema.
         """
         from .core import config as _cfg
-        from .core.themes import get_theme, set_active_theme, THEMES
+        from .core.themes import get_current_theme, get_theme, set_active_theme, THEMES
 
         if theme_name not in THEMES:
             return
+        old_t = dict(get_current_theme())
         t = get_theme(theme_name)
         set_active_theme(theme_name)
 
@@ -1070,6 +1081,23 @@ class PremiumApp(ctk.CTk):
         _cfg.CARD_2   = t["card2"]
         _cfg.MUTED    = t["muted"]
         _cfg.TEXT     = t["text"]
+
+        # ── Capa 2: copias importadas en los módulos de las vistas ────────────
+        self._propagate_theme_globals(t)
+
+        # ── Capa 1: repintar el árbol completo de widgets ya creados ──────────
+        mapping = self._build_theme_mapping(old_t, t)
+        if mapping:
+            try:
+                self._retheme_widget_tree(self, mapping)
+            except Exception:
+                logger.warning("Repintado de tema parcial", exc_info=True)
+
+        # ── Capa 3: estilos ttk (tablas Treeview) ─────────────────────────────
+        try:
+            self._setup_style()
+        except Exception:
+            logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Sidebar frame ──────────────────────────────────────────────────────
         if hasattr(self, "_sidebar"):
@@ -1100,6 +1128,91 @@ class PremiumApp(ctk.CTk):
             self.storage.set_setting("theme", theme_name)
 
         logger.info("Tema aplicado: %s", theme_name)
+
+    # ── Repintado de tema (helpers) ────────────────────────────────────────────
+
+    @staticmethod
+    def _build_theme_mapping(old_t: dict, new_t: dict) -> dict[str, str]:
+        """Mapa color_viejo(hex, lower) → color_nuevo. El orden de las claves
+        importa: si dos claves comparten hex en el tema viejo, gana la primera
+        (los casos ambiguos como sidebar/nav se corrigen explícitamente después)."""
+        keys = (
+            "bg", "card", "card2", "text", "accent", "accent2", "border",
+            "muted", "nav_active_bg", "nav_inactive_text", "nav_inactive_bg",
+            "nav_hover_bg", "run_btn", "run_btn_hover",
+            "sidebar_bg", "sidebar_border",
+        )
+        mapping: dict[str, str] = {}
+        for k in keys:
+            o, n = old_t.get(k), new_t.get(k)
+            if o and n and o.lower() != n.lower():
+                mapping.setdefault(o.lower(), n)
+        return mapping
+
+    _CTK_COLOR_PROPS = (
+        "fg_color", "bg_color", "border_color", "text_color", "hover_color",
+        "progress_color", "button_color", "button_hover_color",
+        "placeholder_text_color", "text_color_disabled", "checkmark_color",
+        "selected_color", "selected_hover_color", "unselected_color",
+        "unselected_hover_color", "label_fg_color",
+        "scrollbar_button_color", "scrollbar_button_hover_color",
+    )
+    _TK_COLOR_PROPS = (
+        "background", "foreground", "highlightbackground", "highlightcolor",
+        "insertbackground", "activebackground", "activeforeground",
+        "selectbackground", "selectforeground", "disabledforeground",
+    )
+
+    def _retheme_widget_tree(self, widget, mapping: dict[str, str]) -> None:
+        """Recorre el árbol de widgets remapeando los colores de la paleta
+        vieja a la nueva. Los colores semánticos (verde/rojo/ámbar de picks,
+        chips, etc.) no están en la paleta y quedan intactos."""
+        def _remap(value):
+            if isinstance(value, (list, tuple)):
+                return type(value)(_remap(v) for v in value)
+            try:
+                return mapping.get(str(value).lower(), value)
+            except Exception:
+                return value
+
+        is_ctk = type(widget).__module__.startswith("customtkinter")
+        props  = self._CTK_COLOR_PROPS if is_ctk else self._TK_COLOR_PROPS
+        for prop in props:
+            try:
+                cur = widget.cget(prop)
+            except Exception:
+                continue
+            new = _remap(cur)
+            if new != cur:
+                try:
+                    widget.configure(**{prop: new})
+                except Exception:
+                    logger.debug("Excepción ignorada", exc_info=True)
+
+        for child in widget.winfo_children():
+            self._retheme_widget_tree(child, mapping)
+
+    def _propagate_theme_globals(self, t: dict) -> None:
+        """Actualiza las copias de los colores (`from config import ACCENT, ...`)
+        en todos los módulos cargados del paquete, para que los widgets creados
+        a partir de ahora (filas de análisis, tarjetas, diálogos) nazcan ya con
+        el tema nuevo."""
+        import sys
+        root_pkg = __name__.split(".")[0]
+        updates = {
+            "BG": t["bg"], "CARD": t["card"], "CARD_2": t["card2"],
+            "ACCENT": t["accent"], "ACCENT_2": t["accent2"],
+            "BORDER": t["border"], "MUTED": t["muted"], "TEXT": t["text"],
+        }
+        for name, mod in list(sys.modules.items()):
+            if mod is None or not name.startswith(root_pkg):
+                continue
+            for attr, val in updates.items():
+                if hasattr(mod, attr):
+                    try:
+                        setattr(mod, attr, val)
+                    except Exception:
+                        logger.debug("Excepción ignorada", exc_info=True)
 
     def _set_nav(self, active: str) -> None:
         from .core.themes import get_current_theme as _gct
