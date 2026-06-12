@@ -23,10 +23,16 @@ class Storage:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_file)
+        con = sqlite3.connect(self.db_file, timeout=10)
+        # busy_timeout: si otro hilo escribe, esperar hasta 10 s antes de
+        # lanzar "database is locked" (la app usa ~20 hilos de fondo)
+        con.execute("PRAGMA busy_timeout=10000")
+        return con
 
     def _init_db(self) -> None:
         with self._connect() as con:
+            # WAL: lectores y escritor no se bloquean entre sí (persistente en la BD)
+            con.execute("PRAGMA journal_mode=WAL")
             con.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key   TEXT PRIMARY KEY,
@@ -77,7 +83,7 @@ class Storage:
                         f"ALTER TABLE model_picks ADD COLUMN {_col} {_col_type} {_default}".strip()
                     )
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
             con.execute("""
                 CREATE TABLE IF NOT EXISTS odds_history (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -37,6 +37,14 @@ LEAGUE_TIER: dict[str, int] = {
 
 FIXTURES_URL = "https://www.football-data.co.uk/fixtures.csv"
 
+# Temporadas de histórico para entrenar el modelo. Una sola temporada
+# (~330-740 partidos) producía overfitting con 124 features: logloss OOS
+# 1.35-1.50, peor que el azar (1.0986). Con 3 temporadas el dataset por
+# liga sube a ~1.100 partidos. La ÚLTIMA debe ser la temporada actual
+# (la que aparece en las URLs de LEAGUE_MAP).
+CURRENT_SEASON = "2526"
+HIST_SEASONS   = ["2324", "2425", "2526"]
+
 # Formato: (div_code, csv_historico_url_o_None, color_ui)
 # csv=None → liga sin histórico en football-data.co.uk → solo cuotas en tiempo real
 LEAGUE_MAP: dict[str, tuple[str, str | None, str]] = {

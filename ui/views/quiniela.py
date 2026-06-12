@@ -33,6 +33,11 @@ from ...core.quiniela_optimizer import (
 from ..widgets import make_card, make_textbox, textbox_set
 
 # Coste base por combinación en la quiniela española (€)
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 COSTE_BASE = 0.55
 
 # Multiplicadores por tipo de pick (partidos 1-14)
@@ -104,7 +109,7 @@ def _pleno15_probs(
         if s > 0:
             return tuple(round(x / s, 4) for x in b)   # type: ignore[return-value]
     except Exception:
-        pass
+        logger.debug("Excepción ignorada", exc_info=True)
 
     # Fallback: Poisson simple con lambda total
     try:
@@ -126,7 +131,7 @@ def _pleno15_probs(
         if s > 0:
             return round(p0/s, 4), round(p1/s, 4), round(p2/s, 4), round(pM/s, 4)
     except Exception:
-        pass
+        logger.debug("Excepción ignorada", exc_info=True)
 
     return 0.24, 0.46, 0.24, 0.06
 
@@ -2133,20 +2138,20 @@ class QuinielaView(ctk.CTkFrame):
         _logger = _log.getLogger(__name__)
         try:
             from ...core.analyzer import Analyzer
-            from ...core.data import fetch_csv
+            from ...core.data import fetch_csv, fetch_historic_multi
             from ...core.config import LEAGUE_MAP, FIXTURES_URL
 
             def _status(msg: str) -> None:
                 self.app.after(0, lambda m=msg: self.status_lbl.configure(text=f"⏳ {m}"))
 
-            # ── Descargar histórico SP1 y SP2 ─────────────────────────────────
+            # ── Descargar histórico SP1 y SP2 (3 temporadas) ──────────────────
             hist: dict = {}
             for league_name in ["La Liga", "Segunda"]:
                 div, csv_url, _ = LEAGUE_MAP[league_name]
                 if csv_url:
                     _status(f"Descargando {league_name}…")
                     try:
-                        hist[div] = fetch_csv(csv_url)
+                        hist[div] = fetch_historic_multi(csv_url)
                     except Exception as exc:
                         _logger.warning("ML directo: error descargando %s: %s", league_name, exc)
 
@@ -2159,7 +2164,7 @@ class QuinielaView(ctk.CTkFrame):
             # ── Fixtures actuales ─────────────────────────────────────────────
             _status("Descargando fixtures…")
             try:
-                fixtures_df = fetch_csv(FIXTURES_URL)
+                fixtures_df = fetch_csv(FIXTURES_URL, cache_hours=1.0)
             except Exception as exc:
                 _logger.warning("ML directo: error fixtures: %s", exc)
                 self.app.after(0, lambda: self.status_lbl.configure(
@@ -2742,7 +2747,7 @@ class QuinielaView(ctk.CTkFrame):
             self._cal_log.see("end")
             self._cal_log.configure(state="disabled")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _on_calibration_done(self, params: dict) -> None:
         """Callback cuando la calibración termina correctamente."""
@@ -2822,7 +2827,7 @@ class QuinielaView(ctk.CTkFrame):
         try:
             self.app.verify_quinielas_now()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _toggle_historial(self) -> None:
         """Muestra u oculta el panel de historial."""
@@ -2853,7 +2858,7 @@ class QuinielaView(ctk.CTkFrame):
         try:
             boletos = self.app.storage.load_quinielas(limit=50)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
         if not boletos:
             ctk.CTkLabel(

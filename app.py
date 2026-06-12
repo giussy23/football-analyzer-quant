@@ -88,7 +88,7 @@ class PremiumApp(ctk.CTk):
             try:
                 self.iconbitmap(_icon)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Telegram bot ──────────────────────────────────────────────────────
         self._tg_bot: Optional[object] = None   # TelegramBot, importado tarde
@@ -249,7 +249,7 @@ class PremiumApp(ctk.CTk):
         try:
             self.after(1500, self._wake_tick)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _on_system_wake(self) -> None:
         """Da un respiro al despertar: pausa animaciones, repinta limpio y las
@@ -258,7 +258,7 @@ class PremiumApp(ctk.CTk):
         try:
             self.update_idletasks()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         # Reanudar las animaciones tras ~0.7 s, ya con la ventana repintada
         self.after(700, self._wake_resume)
 
@@ -268,7 +268,7 @@ class PremiumApp(ctk.CTk):
             if self.state() == "iconic":
                 return
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         self._animations_paused = False
 
     def _update_claude_counter(self) -> None:
@@ -405,7 +405,7 @@ class PremiumApp(ctk.CTk):
                 c.itemconfig(sid, fill="#020810" if off else col)
                 c.after(140, _twinkle)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         c.after(1500, _twinkle)      # pequeño delay al arranque
 
@@ -431,7 +431,7 @@ class PremiumApp(ctk.CTk):
                 from generate_logo import generate_sidebar_logo
                 generate_sidebar_logo(logo_path, W=238, H=280)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         c = tk.Canvas(parent, width=W, height=H,
                       highlightthickness=0, bd=0, bg="#040c18")
@@ -862,7 +862,7 @@ class PremiumApp(ctk.CTk):
             c.coords(self._ticker_text_id, self._ticker_x, 14)
             self._ticker_after = self.after(16, lambda: self._ticker_step(token))  # 60 fps
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def update_ticker(self) -> None:
         """Reconstruye el texto del ticker con los picks del análisis actual."""
@@ -876,7 +876,7 @@ class PremiumApp(ctk.CTk):
             try:
                 self.after_cancel(self._ticker_after)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
             self._ticker_after = None
         try:
             df = getattr(self, "filtered", pd.DataFrame())
@@ -918,7 +918,7 @@ class PremiumApp(ctk.CTk):
             self._ticker_x = float(cw)
             self._ticker_canvas.coords(self._ticker_text_id, self._ticker_x, 14)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         # Reiniciar el loop con el nuevo token — solo este callback continuará
         self._ticker_after = self.after(16, lambda: self._ticker_step(tok))
 
@@ -1022,7 +1022,7 @@ class PremiumApp(ctk.CTk):
         try:
             self.live_view.on_hide()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def show_analysis_view(self):
         self._hide_all(); self.analysis_view.grid(); self._set_nav("analysis")
@@ -1038,7 +1038,7 @@ class PremiumApp(ctk.CTk):
             if not df.empty:
                 self.accumulator_view.refresh(df)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def show_quiniela_view(self):
         self._hide_all(); self.quiniela_view.grid(); self._set_nav("quiniela")
@@ -1051,14 +1051,14 @@ class PremiumApp(ctk.CTk):
         try:
             self.live_view.on_show()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def show_calendar_view(self):
         self._hide_all(); self.calendar_view.grid(); self._set_nav("calendar")
         try:
             self.calendar_view.refresh()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def show_execution_view(self):
         self._hide_all(); self.execution_view.grid(); self._set_nav("execution")
@@ -1072,7 +1072,7 @@ class PremiumApp(ctk.CTk):
         try:
             self.performance_view.refresh()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def show_alerts_view(self):
         self._hide_all(); self.alerts_view.grid(); self._set_nav("alerts")
@@ -1089,7 +1089,7 @@ class PremiumApp(ctk.CTk):
             else:
                 self.chat_view.refresh_context()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     # ── Settings persistence ──────────────────────────────────────────────────
 
@@ -1256,7 +1256,7 @@ class PremiumApp(ctk.CTk):
                 try:
                     self.line_monitor.reset_value_alerts()
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
 
             # ── Calcular pasos y pesos ────────────────────────────────────────
             # Pesos aproximados al tiempo real de cada fase:
@@ -1271,13 +1271,14 @@ class PremiumApp(ctk.CTk):
                 self._set_progress(min(done / total_weight, 0.99), label)
                 self._set_status(label)
 
-            # ── Descargar histórico ───────────────────────────────────────────
+            # ── Descargar histórico (3 temporadas, con caché en disco) ────────
+            from .core.data import fetch_historic_multi
             hist: dict = {}
             for name in selected:
                 div, csv_url, _ = LEAGUE_MAP[name]
                 if csv_url:
                     step(1.0, f"Descargando {name}…")
-                    hist[div] = fetch_csv(csv_url)
+                    hist[div] = fetch_historic_multi(csv_url)
 
             # ── xG real de Understat (gratis, sin API key) ───────────────────
             from .core.understat import fetch_league_xg as _fetch_xg
@@ -1291,7 +1292,7 @@ class PremiumApp(ctk.CTk):
                             self._understat_cache[div] = xg_data
                             self._set_status(f"xG real Understat: {name} ({len(xg_data)} equipos)")
                     except Exception:
-                        pass
+                        logger.debug("Excepción ignorada", exc_info=True)
 
             # ── Fixtures ─────────────────────────────────────────────────────
             odds_api_key = self.storage.get_setting("odds_api_key", "")
@@ -1314,10 +1315,10 @@ class PremiumApp(ctk.CTk):
                     logger.debug("CLV automático: %s", exc)
                 if fixtures.empty:
                     self._set_status("⚠ Sin fixtures de Odds API, usando football-data.co.uk…")
-                    fixtures = fetch_csv(FIXTURES_URL)
+                    fixtures = fetch_csv(FIXTURES_URL, cache_hours=1.0)
             else:
                 step(1.0, "Descargando fixtures…")
-                fixtures = fetch_csv(FIXTURES_URL)
+                fixtures = fetch_csv(FIXTURES_URL, cache_hours=1.0)
 
             # ── Separar ligas con/sin histórico ───────────────────────────────
             divs_with_history = [LEAGUE_MAP[n][0] for n in selected if LEAGUE_MAP[n][1]]
@@ -1492,7 +1493,7 @@ class PremiumApp(ctk.CTk):
             if self.accumulator_view.winfo_viewable():
                 self.accumulator_view.refresh(self.results)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         self.update_ticker()          # actualizar ticker con los nuevos picks
 
         # ── Circuit breaker: avisar si está restringiendo el stake ────────────
@@ -1508,7 +1509,7 @@ class PremiumApp(ctk.CTk):
                     show_toast(self, "⚠️  Stake reducido a la mitad",
                                _rs.reason, kind="warning", duration_ms=8000)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Monte Carlo: pasar picks al simulador ─────────────────────────────
         try:
@@ -1561,7 +1562,7 @@ class PremiumApp(ctk.CTk):
                     try:
                         self._tg_bot.notify_value_pick(pick)
                     except Exception:
-                        pass
+                        logger.debug("Excepción ignorada", exc_info=True)
                 self.line_monitor.check_value_alerts(
                     picks_for_alerts,
                     edge_threshold=threshold,
@@ -1602,7 +1603,7 @@ class PremiumApp(ctk.CTk):
                     self.send_telegram_text(msg)
                     self._add_history_entry(sent=True)
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
 
     # ── Claude enrichment ─────────────────────────────────────────────────────
 
@@ -1801,7 +1802,7 @@ class PremiumApp(ctk.CTk):
             try:
                 self.after_cancel(fid)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         self._filter_after_id = self.after(delay_ms, self._run_scheduled_filter)
 
     def _run_scheduled_filter(self) -> None:
@@ -2018,7 +2019,7 @@ class PremiumApp(ctk.CTk):
             if val is None or pd.isna(val):
                 return ""
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         ts = pd.to_datetime(val, errors="coerce")
         if ts is None or pd.isna(ts):
             return str(val)[:10]
@@ -2055,7 +2056,7 @@ class PremiumApp(ctk.CTk):
                 if val is None or pd.isna(val):
                     return default
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
             return val
 
         legs, rels, bankrolls = [], [], []
@@ -2479,7 +2480,7 @@ class PremiumApp(ctk.CTk):
                 try:
                     self._tg_bot._notify(f"⚠ Error al actualizar caché: {exc}")
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
 
     def _update_bot_cache_inner(self) -> None:
         import re as _re
@@ -2599,7 +2600,7 @@ class PremiumApp(ctk.CTk):
                 if m:
                     jornada = m.group(1)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
             quiniela_info = {
                 "jornada":       jornada,
@@ -2622,7 +2623,7 @@ class PremiumApp(ctk.CTk):
                     f"{n_q} partidos quiniela"
                 )
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Picks para notificaciones del bot ────────────────────────────────
         from datetime import date as _d
@@ -2706,7 +2707,7 @@ class PremiumApp(ctk.CTk):
                 elif "Token inválido" in m or "detenido" in m.lower():
                     self.settings_view.update_bot_status(running=False)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         self.after(0, _ui_update)
 
     def start_telegram_bot(self) -> None:
@@ -2767,7 +2768,7 @@ class PremiumApp(ctk.CTk):
             try:
                 self.after_cancel(self._audit_after_id)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         self._audit_after_id = self.after(
             interval_min * 60 * 1000, self._auto_audit_tick)
 
@@ -2816,7 +2817,7 @@ class PremiumApp(ctk.CTk):
         try:
             self.quiniela_view._load_historial()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         # Toast por cada boleto verificado
         try:
             from .ui.toast import show_toast
@@ -2830,7 +2831,7 @@ class PremiumApp(ctk.CTk):
                     duration_ms=8000,
                 )
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         # Telegram (solo si está activado)
         try:
             if self.telegram_enabled.get():
@@ -2889,7 +2890,7 @@ class PremiumApp(ctk.CTk):
             self.history = self.storage.load_combos()
             self._refresh_portfolio()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         # Toast por cada combinada liquidada
         try:
             from .ui.toast import show_toast
@@ -2905,7 +2906,7 @@ class PremiumApp(ctk.CTk):
                     duration_ms=8000,
                 )
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         # Telegram (solo si está activado)
         try:
             if self.telegram_enabled.get():
@@ -2962,7 +2963,7 @@ class PremiumApp(ctk.CTk):
             if hasattr(self, "performance_view"):
                 self.performance_view.refresh()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Notificación Telegram si hay alertas críticas o amarillas ─────────
         try:
