@@ -1,0 +1,214 @@
+[2026-06-13 00:09:05] UI bloqueada 3.4s — stack del hilo principal:
+  File "D:\football_analyzer\main.py", line 21, in <module>
+    app.mainloop()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\ctk_tk.py", line 165, in mainloop
+    super().mainloop(*args, **kwargs)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1613, in mainloop
+    self.tk.mainloop(n)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 876, in callit
+    func(*args, **kw)
+  File "D:\football_analyzer\app.py", line 1521, in <lambda>
+    self._on_analysis_done(r, b, d))
+  File "D:\football_analyzer\app.py", line 1590, in _on_analysis_done
+    self._refresh_simulator_matches()
+  File "D:\football_analyzer\app.py", line 2389, in _refresh_simulator_matches
+    self.execution_view.refresh_match_list(matches)
+  File "D:\football_analyzer\ui\views\portfolio.py", line 1524, in refresh_match_list
+    self._make_match_card(self._match_board, match)
+  File "D:\football_analyzer\ui\views\portfolio.py", line 1313, in _make_match_card
+    ctk.CTkLabel(
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_label.py", line 89, in __init__
+    self._label = tkinter.Label(master=self,
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 3392, in __init__
+    Widget.__init__(self, master, 'label', cnf, kw)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2805, in __init__
+    self.tk.call(
+========================================================================
+[2026-06-13 00:13:15] UI bloqueada 3.7s — stack del hilo principal:
+  File "D:\football_analyzer\main.py", line 21, in <module>
+    app.mainloop()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\ctk_tk.py", line 165, in mainloop
+    super().mainloop(*args, **kwargs)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1613, in mainloop
+    self.tk.mainloop(n)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 876, in callit
+    func(*args, **kw)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\scaling\scaling_tracker.py", line 187, in check_dpi_scaling
+    cls.update_scaling_callbacks_for_window(window)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\scaling\scaling_tracker.py", line 64, in update_scaling_callbacks_for_window
+    set_scaling_callback(cls.window_dpi_scaling_dict[window] * cls.widget_scaling,
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 95, in _set_scaling
+    self._draw(no_color_updates=True)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 188, in _update_dimensions_event
+    self._draw(no_color_updates=True)  # faster drawing without color changes
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 188, in _update_dimensions_event
+    self._draw(no_color_updates=True)  # faster drawing without color changes
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+========================================================================
+[2026-06-13 00:13:45] UI bloqueada 4.0s — stack del hilo principal:
+  File "D:\football_analyzer\main.py", line 21, in <module>
+    app.mainloop()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\ctk_tk.py", line 165, in mainloop
+    super().mainloop(*args, **kwargs)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1613, in mainloop
+    self.tk.mainloop(n)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 876, in callit
+    func(*args, **kw)
+  File "D:\football_analyzer\app.py", line 260, in _wake_tick
+    self._on_system_wake()
+  File "D:\football_analyzer\app.py", line 354, in _on_system_wake
+    self.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 188, in _update_dimensions_event
+    self._draw(no_color_updates=True)  # faster drawing without color changes
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_frame.py", line 110, in _draw
+    requires_recoloring = self._draw_engine.draw_rounded_rect_with_border(self._apply_widget_scaling(self._current_width),
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_rendering\draw_engine.py", line 128, in draw_rounded_rect_with_border
+    return self.__draw_rounded_rect_with_border_font_shapes(width, height, corner_radius, border_width, inner_corner_radius, ())
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_rendering\draw_engine.py", line 232, in __draw_rounded_rect_with_border_font_shapes
+    self._canvas.coords("border_oval_4_b", corner_radius, height - corner_radius, corner_radius)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_rendering\ctk_canvas.py", line 90, in coords
+    super().itemconfigure(coords_id, font=("CustomTkinter_shapes_font", -int(args[2]) * 2), text=self._get_char_from_radius(args[2]))
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 3132, in itemconfigure
+    return self._configure(('itemconfigure', tagOrId), cnf, kw)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1826, in _configure
+    self.tk.call(_flatten((self._w, cmd)) + self._options(cnf))
+========================================================================
+[2026-06-13 00:17:47] UI bloqueada 4.3s — stack del hilo principal:
+  File "D:\football_analyzer\main.py", line 21, in <module>
+    app.mainloop()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\ctk_tk.py", line 165, in mainloop
+    super().mainloop(*args, **kwargs)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1613, in mainloop
+    self.tk.mainloop(n)
+========================================================================
+[2026-06-13 00:18:21] UI bloqueada 4.9s — stack del hilo principal:
+  File "D:\football_analyzer\main.py", line 21, in <module>
+    app.mainloop()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\ctk_tk.py", line 165, in mainloop
+    super().mainloop(*args, **kwargs)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1613, in mainloop
+    self.tk.mainloop(n)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 876, in callit
+    func(*args, **kw)
+  File "D:\football_analyzer\app.py", line 260, in _wake_tick
+    self._on_system_wake()
+  File "D:\football_analyzer\app.py", line 354, in _on_system_wake
+    self.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 255, in set
+    self._draw()
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_scrollbar.py", line 161, in _draw
+    self._canvas.update_idletasks()
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1487, in update_idletasks
+    self.tk.call('update', 'idletasks')
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 2093, in __call__
+    return self.func(*args)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 188, in _update_dimensions_event
+    self._draw(no_color_updates=True)  # faster drawing without color changes
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\ctk_frame.py", line 110, in _draw
+    requires_recoloring = self._draw_engine.draw_rounded_rect_with_border(self._apply_widget_scaling(self._current_width),
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_rendering\draw_engine.py", line 128, in draw_rounded_rect_with_border
+    return self.__draw_rounded_rect_with_border_font_shapes(width, height, corner_radius, border_width, inner_corner_radius, ())
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_rendering\draw_engine.py", line 290, in __draw_rounded_rect_with_border_font_shapes
+    self._canvas.coords("inner_oval_3_b", width - border_width - inner_corner_radius, height - border_width - inner_corner_radius, inner_corner_radius)
+  File "D:\football_analyzer\venv\Lib\site-packages\customtkinter\windows\widgets\core_rendering\ctk_canvas.py", line 90, in coords
+    super().itemconfigure(coords_id, font=("CustomTkinter_shapes_font", -int(args[2]) * 2), text=self._get_char_from_radius(args[2]))
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 3132, in itemconfigure
+    return self._configure(('itemconfigure', tagOrId), cnf, kw)
+  File "C:\Users\cloud\AppData\Local\Programs\Python\Python314\Lib\tkinter\__init__.py", line 1826, in _configure
+    self.tk.call(_flatten((self._w, cmd)) + self._options(cnf))
+========================================================================

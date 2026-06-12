@@ -58,6 +58,16 @@ class PremiumApp(ctk.CTk):
 
     def __init__(self) -> None:
         super().__init__()
+
+        # Parches de rendimiento CTk ANTES de crear widgets (evita la cascada
+        # de redibujado de scrollbars que congelaba la UI al restaurar —
+        # diagnóstico en ui_stalls.log / ui/ctk_patches.py)
+        try:
+            from .ui.ctk_patches import apply_performance_patches
+            apply_performance_patches()
+        except Exception:
+            logger.warning("No se pudieron aplicar los parches CTk", exc_info=True)
+
         self.storage = Storage()
 
         self.title("AlphaBet v15.0")
@@ -347,13 +357,14 @@ class PremiumApp(ctk.CTk):
         threading.Thread(target=_watch, daemon=True, name="ui-stall-watchdog").start()
 
     def _on_system_wake(self) -> None:
-        """Da un respiro al despertar: pausa animaciones, repinta limpio y las
-        reanuda tras un instante (evita que compitan con el repintado de Windows)."""
+        """Da un respiro al despertar: pausa animaciones y las reanuda tras un
+        instante (evita que compitan con el repintado de Windows).
+
+        OJO: aquí NO se llama a update_idletasks() — drenar la cola idle de
+        golpe disparaba la cascada de redibujado de scrollbars (4-5 s de
+        'No responde', ver ui_stalls.log). Tk repinta solo, sin forzarlo.
+        """
         self._animations_paused = True
-        try:
-            self.update_idletasks()
-        except Exception:
-            logger.debug("Excepción ignorada", exc_info=True)
         # Reanudar las animaciones tras ~0.7 s, ya con la ventana repintada
         self.after(700, self._wake_resume)
 
@@ -1157,6 +1168,7 @@ class PremiumApp(ctk.CTk):
 
     def show_execution_view(self):
         self._hide_all(); self.execution_view.grid(); self._set_nav("execution")
+        self._apply_pending_sim_matches()   # lista diferida del simulador
 
     def show_portfolio_view(self):
         self._hide_all(); self.portfolio_view.grid(); self._set_nav("portfolio")
@@ -2386,6 +2398,19 @@ class PremiumApp(ctk.CTk):
                 "B365O25":    row.get("B365O25"),
                 "B365U25":    row.get("B365U25"),
             })
+        # Construir cientos de tarjetas CTk bloquea la UI ~3 s (ui_stalls.log).
+        # Diferir: solo reconstruir si la vista Execution está visible; si no,
+        # queda pendiente y se aplica al abrirla (show_execution_view).
+        self._pending_sim_matches = matches
+        if self.execution_view.winfo_ismapped():
+            self._apply_pending_sim_matches()
+
+    def _apply_pending_sim_matches(self) -> None:
+        """Aplica la lista de partidos pendiente del simulador (si la hay)."""
+        matches = getattr(self, "_pending_sim_matches", None)
+        if matches is None:
+            return
+        self._pending_sim_matches = None
         self.execution_view.refresh_match_list(matches)
 
     def load_selected_match_into_simulator(self) -> None:
