@@ -127,6 +127,39 @@ def main() -> None:
         print(f"  Veredicto O/U: {'BATE al mercado' if bm < bk else 'no bate al mercado'}"
               f"{' pero supera al azar' if bm < b5 <= bk or (bm < b5) else ''}")
 
+    # ── BLEND modelo+mercado: ¿el modelo aporta info que el mercado no tiene? ──
+    # Pooling geométrico p ∝ modelo^w · mercado^(1-w). El peso w se ajusta en la
+    # primera mitad del test y se evalúa en la segunda (sin fuga de datos).
+    # Si el blend con w>0 bate al mercado en la mitad de evaluación, el modelo
+    # contiene señal independiente explotable.
+    half = len(y_true) // 2
+    y_fit,  y_ev  = y_true[:half], y_true[half:]
+    sp_fit, sp_ev = stack_probs[:half], stack_probs[half:]
+    mp_fit, mp_ev = mkt_probs[:half],  mkt_probs[half:]
+
+    def _blend(w: float, sp: np.ndarray, mp: np.ndarray) -> np.ndarray:
+        b = np.power(np.clip(sp, EPS, 1), w) * np.power(np.clip(mp, EPS, 1), 1 - w)
+        return b / b.sum(axis=1, keepdims=True)
+
+    grid    = [round(w * 0.05, 2) for w in range(21)]
+    best_w  = min(grid, key=lambda w: _logloss_rows(_blend(w, sp_fit, mp_fit), y_fit))
+    ll_bl   = _logloss_rows(_blend(best_w, sp_ev, mp_ev), y_ev)
+    ll_mkt2 = _logloss_rows(mp_ev, y_ev)
+    ll_stk2 = _logloss_rows(sp_ev, y_ev)
+
+    print()
+    print("=" * 64)
+    print(f"BLEND modelo+mercado (w ajustado en {half} partidos, evaluado en {len(y_ev)})")
+    print("=" * 64)
+    print(f"  Peso optimo del modelo  w = {best_w:.2f}  (0=solo mercado, 1=solo modelo)")
+    print(f"  Mercado solo            : {ll_mkt2:.4f}")
+    print(f"  Modelo solo             : {ll_stk2:.4f}")
+    print(f"  BLEND                   : {ll_bl:.4f}")
+    if ll_bl < ll_mkt2 and best_w > 0:
+        print(f"  Veredicto: el blend BATE al mercado (-{(ll_mkt2-ll_bl)*100:.2f} cpts) — hay senal independiente explotable")
+    else:
+        print("  Veredicto: el blend NO bate al mercado — sin senal independiente medible")
+
 
 if __name__ == "__main__":
     main()

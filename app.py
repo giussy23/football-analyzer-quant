@@ -121,6 +121,7 @@ class PremiumApp(ctk.CTk):
 
         self.edge1        = _sv("edge1",        "0.03")
         self.edge2        = _sv("edge2",        "0.03")
+        self.blend_w      = _sv("blend_model_weight", "0.35")  # peso modelo en blend con mercado
         self.unit_stake   = _sv("unit_stake",   "100")
         self.bankroll_eur = _sv("bankroll_eur", "0")    # banca total en euros (para P&L real)
         self.search_var  = tk.StringVar()
@@ -1099,6 +1100,7 @@ class PremiumApp(ctk.CTk):
         payload = {
             "edge1":                    self.edge1.get(),
             "edge2":                    self.edge2.get(),
+            "blend_model_weight":       self.blend_w.get(),
             "unit_stake":               self.unit_stake.get(),
             "telegram_token":           token,
             "telegram_chat_id":         chat_id,
@@ -1353,6 +1355,10 @@ class PremiumApp(ctk.CTk):
                 # Leer edge y flags desde storage (thread-safe; save_settings() ya los guardó)
                 _edge1      = float(self.storage.get_setting("edge1",        "0.03"))
                 _edge2      = float(self.storage.get_setting("edge2",        "0.03"))
+                try:
+                    _blend_w = float(self.storage.get_setting("blend_model_weight", "0.35"))
+                except ValueError:
+                    _blend_w = 0.35
                 _use_injury = self.storage.get_setting("use_injury_api", "0") == "1"
                 _injury_key = self.storage.get_setting("injury_api_key", "") if _use_injury else ""
 
@@ -1393,6 +1399,7 @@ class PremiumApp(ctk.CTk):
                     settled_pnl=_settled_pnl,
                     risk_multiplier=self._risk_state.multiplier,
                     prob_calibrator=_calibrator,
+                    blend_model_weight=_blend_w,
                 )
 
                 # Enriquecer con xG real de Understat (columnas adicionales de display)

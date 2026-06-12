@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .config import (
-    CLV_MIN, KELLY_CAP, KELLY_FRACTION,
+    BLEND_MODEL_WEIGHT, CLV_MIN, KELLY_CAP, KELLY_FRACTION,
     MAX_OVERROUND_1X2, MAX_OVERROUND_OU, MIN_SAMPLE, MODEL_FILE,
     LEAGUE_TIER, USE_LEAGUE_MODELS,
 )
@@ -73,6 +73,36 @@ from .model import FootballModel, FootballModelCollection
 from .poisson import DixonColesModel
 
 logger = logging.getLogger(__name__)
+
+
+# ── Blend modelo+mercado ──────────────────────────────────────────────────────
+
+def blend_probs_1x2(
+    p_model: tuple[float, float, float],
+    p_market: tuple[float, float, float],
+    w: float,
+) -> tuple[float, float, float]:
+    """Pooling geométrico modelo^w · mercado^(1-w), normalizado.
+
+    Encoge las probabilidades del modelo hacia el mercado: el edge efectivo
+    pasa a ser ≈ w·(modelo−mercado). Con w=0.35 (óptimo del holdout) solo
+    sobreviven los picks donde el modelo discrepa con fuerza del mercado.
+    """
+    eps = 1e-9
+    raw = [
+        max(pm, eps) ** w * max(pk, eps) ** (1 - w)
+        for pm, pk in zip(p_model, p_market)
+    ]
+    s = sum(raw)
+    return raw[0] / s, raw[1] / s, raw[2] / s
+
+
+def blend_prob_binary(p_model: float, p_market: float, w: float) -> float:
+    """Pooling geométrico para mercados de dos resultados (Over/Under)."""
+    eps = 1e-9
+    b1 = max(p_model, eps) ** w * max(p_market, eps) ** (1 - w)
+    b0 = max(1 - p_model, eps) ** w * max(1 - p_market, eps) ** (1 - w)
+    return b1 / (b1 + b0)
 
 
 # ── Helpers financieros ────────────────────────────────────────────────────────
@@ -609,7 +639,14 @@ class Analyzer:
         settled_pnl:     list  = None,
         risk_multiplier: float = 1.0,
         prob_calibrator: object = None,
+        blend_model_weight: float = BLEND_MODEL_WEIGHT,
     ) -> pd.DataFrame:
+
+        # Peso del modelo en el blend con el mercado (0..1); fuera de rango → sin blend
+        try:
+            blend_w = float(blend_model_weight)
+        except (TypeError, ValueError):
+            blend_w = BLEND_MODEL_WEIGHT
 
         def _cb(msg: str) -> None:
             if progress_cb:
@@ -925,6 +962,14 @@ class Analyzer:
                         )
                         sharp_ref = "b365"
 
+                    # ── Blend modelo+mercado (w=0.35 del holdout 12/06/2026) ──
+                    # Encoge los edges ilusorios: solo sobreviven los picks
+                    # donde el modelo discrepa con FUERZA de la referencia sharp.
+                    if 0.0 < blend_w < 1.0:
+                        p_home, p_draw, p_away = blend_probs_1x2(
+                            (p_home, p_draw, p_away), (fh, fd, fa), blend_w
+                        )
+
                     edges = {"1": p_home - fh, "X": p_draw - fd, "2": p_away - fa}
                     best  = max(edges, key=edges.get)
 
@@ -972,6 +1017,8 @@ class Analyzer:
                     oi  = 1 / float(r["B365O25"])
                     ui  = 1 / float(r["B365U25"])
                     ofa = oi / (oi + ui)
+                    if 0.0 < blend_w < 1.0:
+                        p_over = blend_prob_binary(p_over, ofa, blend_w)
                     oe  = p_over - ofa
 
                     if oe >= edge_ou and (edge is None or oe > edge):

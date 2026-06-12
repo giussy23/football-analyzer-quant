@@ -319,6 +319,7 @@ class AnalysisView(ctk.CTkFrame):
         for label, var in [
             ("Edge 1X2",        self.app.edge1),
             ("Edge Over 2.5",   self.app.edge2),
+            ("Peso modelo 0-1 (blend mercado)", self.app.blend_w),
             ("Bankroll base (€)", self.app.unit_stake),
         ]:
             ctk.CTkLabel(lb, text=label, text_color=MUTED).pack(anchor="w", pady=(8, 2))

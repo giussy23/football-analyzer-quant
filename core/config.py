@@ -85,6 +85,13 @@ WF_SPLITS          = 5      # número de ventanas temporales
 KELLY_FRACTION = 0.20
 KELLY_CAP      = 0.015      # máximo 1.5 % del bankroll por apuesta
 
+# Blend modelo+mercado (pooling geométrico: modelo^w · mercado^(1-w)).
+# Holdout cronológico 12/06/2026 (tools/eval_holdout.py, 1.417 partidos):
+# w=0.35 es el peso óptimo y el blend bate al mercado (logloss 0.9978 vs
+# 1.0039). Usar el modelo a pelo (w=1) sobreestima los edges ~3×.
+# 0 = confiar solo en el mercado; 1 = solo el modelo (comportamiento antiguo).
+BLEND_MODEL_WEIGHT = 0.35
+
 # Filtros de mercado
 MAX_OVERROUND_1X2 = 1.08
 MAX_OVERROUND_OU  = 1.10
