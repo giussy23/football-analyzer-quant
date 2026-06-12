@@ -19,6 +19,11 @@ from typing import Literal
 import customtkinter as ctk
 
 # Paleta
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 _BG     = "#0a1e0c"
 _BORDER = "#2dd45b"
 _TEXT   = "#f0fff4"
@@ -125,11 +130,11 @@ class _Toast:
         try:
             self._root.after_cancel(self._after_id)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         try:
             self._win.destroy()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         if self in _ACTIVE_TOASTS:
             _ACTIVE_TOASTS.remove(self)
         # Reposicionar los restantes

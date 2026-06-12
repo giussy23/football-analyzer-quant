@@ -227,7 +227,7 @@ class LineMonitor:
             try:
                 self.storage.save_odds_snapshot(snap)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
             # Detectar movimiento vs snapshot anterior
             with self._lock:
@@ -257,7 +257,7 @@ class LineMonitor:
                     try:
                         self.on_alert(alert)
                     except Exception:
-                        pass
+                        logger.debug("Excepción ignorada", exc_info=True)
 
         return new_alerts
 

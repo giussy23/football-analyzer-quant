@@ -28,6 +28,11 @@ from ..toast import show_toast
 if TYPE_CHECKING:
     from ...app import PremiumApp
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 _ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 
 # Colores de estado
@@ -271,7 +276,7 @@ class LiveScoresView(ctk.CTkFrame):
                 if (today - d).days <= 1:
                     active.append(p)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Añadir fixtures de combinada IA del análisis actual ───────────────
         # Solo los de hoy con edge positivo que no estén ya en active

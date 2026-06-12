@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from ...app import PremiumApp
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class ChatView(ctk.CTkFrame):
     """Panel de chat interactivo con Claude IA como analista cuantitativo."""
 
@@ -229,7 +234,7 @@ class ChatView(ctk.CTkFrame):
         try:
             recent = self.app.storage.load_model_picks()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
         # ── CLV stats ─────────────────────────────────────────────────────────
         clv_stats: dict = {}
@@ -244,7 +249,7 @@ class ChatView(ctk.CTkFrame):
                 total_stk = sum(float(p.get("bankroll_pct") or 0.01) for p in settled)
                 clv_stats["roi"] = total_pnl / total_stk if total_stk > 0 else 0.0
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Quiniela actual ───────────────────────────────────────────────────
         quiniela_picks: list[dict] = []
@@ -255,7 +260,7 @@ class ChatView(ctk.CTkFrame):
                     if hasattr(row, "data") and row.data:
                         quiniela_picks.append(dict(row.data))
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Combinadas actuales ───────────────────────────────────────────────
         combinadas: list[dict] = []
@@ -264,7 +269,7 @@ class ChatView(ctk.CTkFrame):
             if hasattr(av, "_combos") and av._combos:
                 combinadas = list(av._combos[:5])
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Backtest summary y diagnósticos ───────────────────────────────────
         backtest_summary: dict = {}
@@ -273,7 +278,7 @@ class ChatView(ctk.CTkFrame):
             backtest_summary = dict(self.app.backtest_summary or {})
             diagnostics = list(self.app.diagnostics or [])
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
         # ── Inyectar en el chat ───────────────────────────────────────────────
         self._chat.update_context(
@@ -374,7 +379,7 @@ class ChatView(ctk.CTkFrame):
                     end = self._chat_box.index("end")
                     self._chat_box.delete(self._thinking_mark, end)
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
         self._chat_box.configure(state="disabled")
         self._chat_box.see("end")
 

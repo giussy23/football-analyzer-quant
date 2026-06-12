@@ -218,7 +218,7 @@ class InjuryFetcher:
                     if fd < cutoff:
                         continue
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
             active.append(inj)
 
         if not active:

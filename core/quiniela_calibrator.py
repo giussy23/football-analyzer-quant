@@ -91,7 +91,7 @@ class QuinielaCalibrator:
                 merged.update(p)
                 return merged
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         return dict(DEFAULT_PARAMS)
 
     def is_stale(self) -> bool:
@@ -125,7 +125,7 @@ class QuinielaCalibrator:
                 try:
                     cb(msg)
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
 
         params = dict(DEFAULT_PARAMS)
 

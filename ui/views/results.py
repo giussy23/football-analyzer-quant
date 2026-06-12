@@ -26,6 +26,11 @@ if TYPE_CHECKING:
     from ...app import PremiumApp
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class ResultsView(ctk.CTkFrame):
     """Seguimiento de picks reales: estado, stake €, P&L € y ROI verificado."""
 
@@ -904,7 +909,7 @@ class ResultsView(ctk.CTkFrame):
             try:
                 self._autopsy_loading.destroy()
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         self.app._update_claude_counter()
 

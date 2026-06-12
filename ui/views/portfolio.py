@@ -36,6 +36,11 @@ except ImportError:
     _MC_OK = False
 
 # Colores propios del gráfico Monte Carlo
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 _MC_BG      = "#040c18"
 _MC_FILL_25 = "#22c55e"   # banda p25-p75
 _MC_FILL_10 = "#166534"   # banda p10-p90
@@ -880,7 +885,7 @@ class ExecutionView(ctk.CTkScrollableFrame):
                         fg_color=_BTN_NORMAL, border_color="#2a5a32", text_color=TEXT,
                     )
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
             self._slip_legs[match_idx] = self._leg_dict(match_key, pick, odds)
         else:
             # Añadir nuevo leg
@@ -895,7 +900,7 @@ class ExecutionView(ctk.CTkScrollableFrame):
                     text_color=_BTN_SEL_TEXT,
                 )
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         # Sincronizar vars de app (compat con auto_fill_sim_odds)
         self.app.sim_match_var.set(match_key)
@@ -922,7 +927,7 @@ class ExecutionView(ctk.CTkScrollableFrame):
                     fg_color=_BTN_NORMAL, border_color="#2a5a32", text_color=TEXT,
                 )
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         self._refresh_slip_panel()
 
     def _clear_slip(self) -> None:
@@ -934,7 +939,7 @@ class ExecutionView(ctk.CTkScrollableFrame):
                         fg_color=_BTN_NORMAL, border_color="#2a5a32", text_color=TEXT,
                     )
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
         self._slip_legs.clear()
         self._refresh_slip_panel()
 
@@ -1012,7 +1017,7 @@ class ExecutionView(ctk.CTkScrollableFrame):
         try:
             textbox_set(self.sim_detail, "\n".join(lines))
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _update_slip_return(self) -> None:
         try:

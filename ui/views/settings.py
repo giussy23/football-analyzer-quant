@@ -17,6 +17,11 @@ from ...core.config import ACCENT, ACCENT_2, BORDER, CARD_2, MUTED, TEXT
 from ..widgets import make_card, make_textbox
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class SettingsView(ctk.CTkScrollableFrame):
     def __init__(self, parent, app, **kwargs):
         super().__init__(parent, fg_color="transparent", **kwargs)
@@ -721,7 +726,7 @@ class SettingsView(ctk.CTkScrollableFrame):
                     self.app.after_cancel(self.app._audit_after_id)
                     self.app._audit_after_id = None
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         ctk.CTkOptionMenu(
             audit_row,
@@ -898,7 +903,7 @@ class SettingsView(ctk.CTkScrollableFrame):
             self._bot_log.configure(state="disabled")
             self._bot_log.see("end")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _test_telegram(self):
         try:

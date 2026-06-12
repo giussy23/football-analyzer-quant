@@ -638,7 +638,7 @@ class Analyzer:
                 if xg_data:
                     xg_hist_by_div[_div] = xg_data
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         if xg_hist_by_div:
             _cb(f"xG histórico (Understat {prev_season}): {len(xg_hist_by_div)} ligas")
 

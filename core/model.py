@@ -281,7 +281,7 @@ class FootballModel:
                 try:
                     progress_cb(msg)
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
         self.feature_cols = [
             c for c in df.columns
             if c.startswith("f_") and pd.api.types.is_numeric_dtype(df[c])
@@ -750,7 +750,7 @@ class FootballModelCollection:
                 self.global_model = joblib.load(global_path)
                 loaded_any = True
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
         return loaded_any
 

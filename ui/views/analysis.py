@@ -20,6 +20,11 @@ from ...core.config import (
 from ..widgets import make_card, make_textbox, textbox_set
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class _ColumnTooltip:
     """Muestra un tooltip al pasar el ratón por las cabeceras del Treeview."""
     TIPS: dict = {
@@ -209,7 +214,7 @@ class _ShapTooltip:
             try:
                 self._tw.destroy()
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
             self._tw = None
         self._last_iid = ""
 
@@ -270,7 +275,7 @@ def _fmt_cell(col: str, v) -> str:
         if col in ("xg_home", "xg_away"):
             return f"{float(v):.2f}"
     except Exception:
-        pass
+        logger.debug("Excepción ignorada", exc_info=True)
     return str(v) if str(v) != "nan" else "—"
 
 
@@ -611,7 +616,7 @@ class AnalysisView(ctk.CTkFrame):
                 if not df.empty:
                     self.fill_cards(df)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         else:
             self._view_mode = "table"
             self._cards_outer.grid_remove()
@@ -646,7 +651,7 @@ class AnalysisView(ctk.CTkFrame):
             try:
                 self.after_cancel(self._cards_after_id)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
             self._cards_after_id = None
 
         # Limpiar tarjetas anteriores
@@ -1085,7 +1090,7 @@ class AnalysisView(ctk.CTkFrame):
                 if iid in self.tree.selection():
                     textbox_set(self._detail_box, text)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         # Actualizar en tarjeta si está seleccionada
         if match_key in self._card_rows:
             try:
@@ -1094,7 +1099,7 @@ class AnalysisView(ctk.CTkFrame):
                 if self._selected_card_key == match_key:
                     textbox_set(self._detail_box, text)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
     def update_grey_pick(self, match_key: str, analysis_text: str, pick: str) -> None:
         """Actualiza pick + análisis de una fila gris con la recomendación del tipster IA."""
@@ -1111,7 +1116,7 @@ class AnalysisView(ctk.CTkFrame):
             if iid in self.tree.selection():
                 textbox_set(self._detail_box, analysis_text)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _on_row_select(self, _event=None) -> None:
         sel = self.tree.selection()
@@ -1125,7 +1130,7 @@ class AnalysisView(ctk.CTkFrame):
             text = str(vals[ai_idx]) if vals[ai_idx] else "—"
             textbox_set(self._detail_box, text)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def fill_league_ranking(self, df: pd.DataFrame) -> None:
         if df.empty or "league" not in df.columns:
@@ -1165,7 +1170,7 @@ class AnalysisView(ctk.CTkFrame):
             try:
                 self._drift_banner.pack_forget()
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
     def _run_sanity_check(self) -> None:
         """Lanza el sanity check de picks VERDE con Claude IA."""

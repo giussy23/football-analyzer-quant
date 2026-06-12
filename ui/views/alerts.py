@@ -28,6 +28,11 @@ if TYPE_CHECKING:
     from ...app import PremiumApp
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class AlertsView(ctk.CTkScrollableFrame):
     def __init__(self, parent, app: "PremiumApp", **kwargs):
         super().__init__(parent, fg_color="transparent", **kwargs)
@@ -339,7 +344,7 @@ class AlertsView(ctk.CTkScrollableFrame):
         try:
             self.after(0, lambda a=alert: self._handle_alert_main_thread(a))
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _handle_alert_main_thread(self, alert) -> None:
         """Ejecutado en el hilo principal de tkinter."""
@@ -348,7 +353,7 @@ class AlertsView(ctk.CTkScrollableFrame):
             if self.app.telegram_enabled.get():  # seguro: estamos en el main thread
                 self.app.send_telegram_text(alert.message)
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _append_alert(self, alert) -> None:
         try:
@@ -357,7 +362,7 @@ class AlertsView(ctk.CTkScrollableFrame):
             self._alerts_log.configure(state="disabled")
             self._alerts_log.see("end")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _update_monitor_status(self) -> None:
         running = bool(self.app.line_monitor and self.app.line_monitor.is_running())
@@ -403,7 +408,7 @@ class AlertsView(ctk.CTkScrollableFrame):
                 try:
                     w.destroy()
                 except Exception:
-                    pass
+                    logger.debug("Excepción ignorada", exc_info=True)
         self._snap_row_widgets.clear()
 
         for row_idx, snap in enumerate(snaps[:20], start=1):
@@ -441,7 +446,7 @@ class AlertsView(ctk.CTkScrollableFrame):
                 self._alerts_log.insert("end", alert.message + "\n")
             self._alerts_log.configure(state="disabled")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     # ── Lógica de bajas ───────────────────────────────────────────────────────
 
@@ -493,7 +498,7 @@ class AlertsView(ctk.CTkScrollableFrame):
                 self._absence_listbox.insert("end", "Sin bajas introducidas.")
             self._absence_listbox.configure(state="disabled")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _calculate_adjustment(self) -> None:
         match_str = self._match_var.get()
@@ -550,7 +555,7 @@ class AlertsView(ctk.CTkScrollableFrame):
             self._prob_text.insert("end", summary)
             self._prob_text.configure(state="disabled")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _clear_prob_text(self) -> None:
         try:
@@ -558,7 +563,7 @@ class AlertsView(ctk.CTkScrollableFrame):
             self._prob_text.delete("1.0", "end")
             self._prob_text.configure(state="disabled")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     # ─────────────────────────────────────────────────────────────────────────
     # SECCIÓN 3: Alineaciones pre-partido (ESPN, sin registro)
@@ -766,7 +771,7 @@ class AlertsView(ctk.CTkScrollableFrame):
                 box.insert("end", "Alineación no disponible")
             box.configure(state="disabled")
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     def _clear_lineup_boxes(self) -> None:
         """Limpia los textboxes de alineaciones."""
@@ -777,7 +782,7 @@ class AlertsView(ctk.CTkScrollableFrame):
                 box.insert("end", "Alineación no disponible")
                 box.configure(state="disabled")
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
         self._home_formation_lbl.configure(text="Formación: —")
         self._away_formation_lbl.configure(text="Formación: —")
 
@@ -790,5 +795,5 @@ class AlertsView(ctk.CTkScrollableFrame):
         try:
             self.refresh()
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
         self.after(30_000, self._schedule_refresh)

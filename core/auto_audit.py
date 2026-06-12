@@ -132,7 +132,7 @@ def run_audit(storage, bankroll_eur: float = 1000.0) -> AuditResult:
             if std_p > 1e-9:
                 sharpe = (mean_p / std_p) * math.sqrt(len(pnl_list))
         except Exception:
-            pass
+            logger.debug("Excepción ignorada", exc_info=True)
 
     # Max drawdown (pico → valle)
     cum, acc = [], 0.0
