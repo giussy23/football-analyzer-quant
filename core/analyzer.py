@@ -498,6 +498,7 @@ def build_training_frame(
             feat.update(extract_market_features(r))
             feat.update({
                 "div":           div,
+                "date":          r.get("date"),   # para splits cronológicos en evaluación
                 "f_league_tier": LEAGUE_TIER.get(div, 3),
                 "result":        r.result,
                 "over25":        r.over25,
