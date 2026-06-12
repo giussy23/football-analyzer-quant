@@ -527,115 +527,41 @@ class PremiumApp(ctk.CTk):
         # ── Detrás de todo ────────────────────────────────────────────────
         tk.Misc.lower(c)
 
-    _BALL_OVERLAY_TRANS = "#fe00fe"   # color mágico → píxeles transparentes
-
-    def _ensure_ball_overlay(self):
-        """Crea (una vez) la capa transparente que flota SOBRE la ventana.
-
-        Es un Toplevel sin bordes con -transparentcolor (Windows): solo se
-        ven los balones, el resto deja pasar la vista Y los clics
-        (WS_EX_TRANSPARENT). Sigue a la ventana principal en posición y
-        tamaño. Devuelve su canvas, o None si no hay soporte (→ fallback
-        al canvas de fondo).
-        """
-        ov = getattr(self, "_ball_overlay", None)
-        if ov is not None and ov.winfo_exists():
-            return self._ball_overlay_canvas
-        try:
-            ov = tk.Toplevel(self)
-            ov.overrideredirect(True)
-            ov.attributes("-transparentcolor", self._BALL_OVERLAY_TRANS)
-            ov.transient(self)            # siempre por encima de su ventana madre
-            cv = tk.Canvas(ov, bg=self._BALL_OVERLAY_TRANS,
-                           highlightthickness=0, bd=0)
-            cv.pack(fill="both", expand=True)
-            ov.update_idletasks()
-            # Clic-through total: el ratón atraviesa la capa entera (Windows)
-            try:
-                import ctypes
-                hwnd = ctypes.windll.user32.GetParent(ov.winfo_id())
-                GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT = -20, 0x80000, 0x20
-                st = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-                ctypes.windll.user32.SetWindowLongW(
-                    hwnd, GWL_EXSTYLE, st | WS_EX_LAYERED | WS_EX_TRANSPARENT)
-            except Exception:
-                logger.debug("Overlay sin clic-through", exc_info=True)
-            self._ball_overlay        = ov
-            self._ball_overlay_canvas = cv
-            # Seguir a la ventana principal (posición, tamaño, minimizar, foco)
-            self.bind("<Configure>", self._sync_ball_overlay, add="+")
-            self.bind("<Map>",       self._sync_ball_overlay, add="+")
-            self.bind("<FocusIn>",   self._sync_ball_overlay, add="+")
-            self.bind("<Unmap>",
-                      lambda e: ov.withdraw() if e.widget is self else None,
-                      add="+")
-            return cv
-        except Exception:
-            logger.debug("Overlay de balones no soportado", exc_info=True)
-            self._ball_overlay = None
-            return None
-
-    def _sync_ball_overlay(self, event=None) -> None:
-        """Alinea la capa de balones con la ventana principal."""
-        if event is not None and event.widget is not self:
-            return
-        ov = getattr(self, "_ball_overlay", None)
-        if ov is None or not ov.winfo_exists():
-            return
-        try:
-            if not self._decor_balls or self.state() == "iconic":
-                ov.withdraw()
-                return
-            ov.deiconify()
-            ov.geometry(
-                f"{self.winfo_width()}x{self.winfo_height()}"
-                f"+{self.winfo_rootx()}+{self.winfo_rooty()}"
-            )
-            ov.lift(self)   # justo encima de la principal (no de otras apps)
-        except Exception:
-            logger.debug("Excepción ignorada", exc_info=True)
-
     def _update_bg_decor(self) -> None:
-        """Redibuja la decoración según el tema activo.
+        """Redibuja la decoración del fondo según el tema activo.
 
-        Los temas con decor="balls" (⚽ Estadio) muestran balones flotando
-        POR ENCIMA de la UI (capa transparente clic-through); si el sistema
-        no soporta transparencia, caen al canvas de fondo.
+        Los temas con decor="balls" (⚽ Estadio) muestran balones ⚽ flotando
+        en el canvas de fondo (en los márgenes alrededor del contenido); el
+        resto solo las estrellas de siempre.
+
+        NOTA: una versión anterior los pintaba en un Toplevel transparente
+        "por encima" de los paneles, pero esa capa colgaba la app en Windows
+        (transparentcolor + clic-through + seguir a la ventana). Revertido al
+        canvas de fondo, que es estable.
         """
         import random as _rng
         from .core.themes import get_current_theme
 
-        t    = get_current_theme()
-        want = t.get("decor") == "balls"
-
-        # Limpiar balones previos de ambos lienzos posibles
-        for c in (getattr(self, "_ball_overlay_canvas", None),
-                  getattr(self, "_galaxy_canvas", None)):
-            if c is not None and c.winfo_exists():
-                c.delete("decor_ball")
+        c = getattr(self, "_galaxy_canvas", None)
+        if c is None or not c.winfo_exists():
+            return
+        c.delete("decor_ball")
         self._decor_balls = []
 
-        if not want:
-            ov = getattr(self, "_ball_overlay", None)
-            if ov is not None and ov.winfo_exists():
-                ov.withdraw()
+        t = get_current_theme()
+        if t.get("decor") != "balls":
             return
-
-        cv = self._ensure_ball_overlay() or getattr(self, "_galaxy_canvas", None)
-        if cv is None or not cv.winfo_exists():
-            return
-        self._decor_canvas = cv
 
         rng = _rng.Random()
-        w = max(self.winfo_width(),  900)
-        h = max(self.winfo_height(), 600)
-        for _ in range(12):
-            x    = rng.randint(0, w)
-            y    = rng.randint(0, h)
-            size = rng.choice([13, 16, 20, 24, 30])
+        sw  = self.winfo_screenwidth()
+        sh  = self.winfo_screenheight()
+        for _ in range(14):
+            x    = rng.randint(0, sw)
+            y    = rng.randint(0, sh)
+            size = rng.choice([16, 20, 24, 30, 38])
             # Los grandes más visibles (cerca), los pequeños apagados (lejos)
-            fill = t["muted"] if size < 20 else t["accent2"]
-            item = cv.create_text(
+            fill = t["muted"] if size < 24 else t["accent2"]
+            item = c.create_text(
                 x, y, text="⚽", fill=fill,
                 font=("Segoe UI Symbol", size), tags="decor_ball",
             )
@@ -644,7 +570,6 @@ class PremiumApp(ctk.CTk):
                 (item, rng.uniform(-0.4, 0.4), rng.uniform(0.15, 0.45))
             )
 
-        self._sync_ball_overlay()
         if not self._ball_anim_running:
             self._ball_anim_running = True
             self.after(120, self._animate_balls)
@@ -653,26 +578,26 @@ class PremiumApp(ctk.CTk):
         """Deriva suave de los balones (8 fps — coste despreciable). Se
         detiene sola si el tema deja de tener balones; respeta la pausa de
         animaciones en segundo plano."""
-        c = getattr(self, "_decor_canvas", None)
+        c = getattr(self, "_galaxy_canvas", None)
         if c is None or not c.winfo_exists() or not self._decor_balls:
             self._ball_anim_running = False
             return
         if getattr(self, "_animations_paused", False):
             self.after(800, self._animate_balls)
             return
-        w = max(c.winfo_width(),  self.winfo_width())
-        h = max(c.winfo_height(), self.winfo_height())
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
         try:
             for item, vx, vy in self._decor_balls:
                 c.move(item, vx, vy)
                 x, y = c.coords(item)
                 # Envolver por los bordes (sale por abajo → entra por arriba)
-                if y > h + 20:
+                if y > sh + 20:
                     c.coords(item, x, -20)
-                if x > w + 20:
+                if x > sw + 20:
                     c.coords(item, -20, y)
                 elif x < -20:
-                    c.coords(item, w + 20, y)
+                    c.coords(item, sw + 20, y)
         except Exception:
             logger.debug("Excepción ignorada", exc_info=True)
         self.after(120, self._animate_balls)
