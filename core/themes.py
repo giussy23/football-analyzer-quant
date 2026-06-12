@@ -124,6 +124,33 @@ THEMES: dict[str, dict] = {
         "sidebar_border":   "#b45309",
     },
 
+    # Tema especial fútbol: césped de estadio nocturno + balones flotando en
+    # el fondo (decor="balls" — lo dibuja app._update_bg_decor).
+    # OJO: los hexes son deliberadamente distintos de los verdes semánticos
+    # de los picks (#22c55e, #16a34a, #4ade80) para que el remapeo de tema
+    # no los toque al cambiar a otro tema.
+    "⚽ Estadio": {
+        "label":            "⚽ Estadio",
+        "bg":               "#03150b",
+        "card":             "#062313",
+        "card2":            "#082b18",
+        "accent":           "#3fe07c",
+        "accent2":          "#1eb259",
+        "border":           "#188c49",
+        "muted":            "#67a87f",
+        "text":             "#f0fdf4",
+        "nav_active_bg":    "#0b3d20",
+        "nav_inactive_text":"#7fbf95",
+        "nav_inactive_bg":  "#05200f",
+        "nav_hover_bg":     "#0a3019",
+        "run_btn":          "#157a40",
+        "run_btn_hover":    "#1eb259",
+        "swatch":           "#1eb259",
+        "sidebar_bg":       "#05200f",
+        "sidebar_border":   "#188c49",
+        "decor":            "balls",
+    },
+
     "Océano": {
         "label":            "Océano",
         "bg":               "#020a14",

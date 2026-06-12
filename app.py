@@ -519,8 +519,82 @@ class PremiumApp(ctk.CTk):
 
         c.after(1500, _twinkle)      # pequeño delay al arranque
 
+        # ── Decoración temática (balones del tema ⚽ Estadio) ─────────────
+        self._decor_balls: list[tuple[int, float, float]] = []
+        self._ball_anim_running: bool = False
+        self._update_bg_decor()
+
         # ── Detrás de todo ────────────────────────────────────────────────
         tk.Misc.lower(c)
+
+    def _update_bg_decor(self) -> None:
+        """Redibuja la decoración del fondo según el tema activo.
+
+        Los temas con decor="balls" (⚽ Estadio) muestran balones flotando
+        suavemente; el resto solo las estrellas de siempre.
+        """
+        import random as _rng
+        from .core.themes import get_current_theme
+
+        c = getattr(self, "_galaxy_canvas", None)
+        if c is None or not c.winfo_exists():
+            return
+        c.delete("decor_ball")
+        self._decor_balls = []
+
+        if get_current_theme().get("decor") != "balls":
+            return
+
+        t   = get_current_theme()
+        rng = _rng.Random()
+        sw  = self.winfo_screenwidth()
+        sh  = self.winfo_screenheight()
+        for _ in range(12):
+            x    = rng.randint(0, sw)
+            y    = rng.randint(0, sh)
+            size = rng.choice([13, 16, 20, 24, 30])
+            # Los grandes más visibles (cerca), los pequeños apagados (lejos)
+            fill = t["muted"] if size < 20 else t["accent2"]
+            item = c.create_text(
+                x, y, text="⚽", fill=fill,
+                font=("Segoe UI Symbol", size), tags="decor_ball",
+            )
+            # (item, velocidad_x, velocidad_y) — deriva lenta tipo "flotar"
+            self._decor_balls.append(
+                (item, rng.uniform(-0.4, 0.4), rng.uniform(0.15, 0.45))
+            )
+
+        if not self._ball_anim_running:
+            self._ball_anim_running = True
+            self.after(120, self._animate_balls)
+
+    def _animate_balls(self) -> None:
+        """Deriva suave de los balones (8 fps — coste despreciable). Se
+        detiene sola si el tema deja de tener balones; respeta la pausa de
+        animaciones en segundo plano."""
+        c = getattr(self, "_galaxy_canvas", None)
+        if c is None or not c.winfo_exists() or not self._decor_balls:
+            self._ball_anim_running = False
+            return
+        if getattr(self, "_animations_paused", False):
+            self.after(800, self._animate_balls)
+            return
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        try:
+            for item, vx, vy in self._decor_balls:
+                c.move(item, vx, vy)
+                x, y = c.coords(item)
+                # Envolver por los bordes (sale por abajo → entra por arriba)
+                if y > sh + 20:
+                    c.coords(item, x, -20)
+                if x > sw + 20:
+                    c.coords(item, -20, y)
+                elif x < -20:
+                    c.coords(item, sw + 20, y)
+        except Exception:
+            logger.debug("Excepción ignorada", exc_info=True)
+        self.after(120, self._animate_balls)
 
     def _draw_logo_header(self, parent) -> tk.Canvas:
         """Logo galáctico: fondo PNG con nebulosa+estrellas + colas de cometa animadas."""
@@ -1096,6 +1170,12 @@ class PremiumApp(ctk.CTk):
         # ── Capa 3: estilos ttk (tablas Treeview) ─────────────────────────────
         try:
             self._setup_style()
+        except Exception:
+            logger.debug("Excepción ignorada", exc_info=True)
+
+        # ── Decoración temática del fondo (balones del tema ⚽ Estadio) ───────
+        try:
+            self._update_bg_decor()
         except Exception:
             logger.debug("Excepción ignorada", exc_info=True)
 
