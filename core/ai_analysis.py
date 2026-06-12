@@ -14,22 +14,18 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Modelos en orden de preferencia — se prueban de arriba a abajo
+# Modelos en orden de preferencia — se prueban de arriba a abajo.
+# Limpiado 12/06/2026: claude-3-5-haiku-20241022 y claude-3-5-sonnet-20241022
+# están RETIRADOS de la API (404); claude-3-haiku se retira en abril 2026.
 _MODELS_PREFERRED = [
     "claude-haiku-4-5",
-    "claude-3-5-haiku-20241022",
-    "claude-3-haiku-20240307",
-    "claude-sonnet-4-5",
-    "claude-3-5-sonnet-20241022",
+    "claude-sonnet-4-6",
 ]
 
 # Precio por millon de tokens (input, output) en USD
 _PRICING: dict[str, tuple[float, float]] = {
-    "claude-haiku-4-5":           (0.80,  4.00),
-    "claude-3-5-haiku-20241022":  (0.80,  4.00),
-    "claude-3-haiku-20240307":    (0.25,  1.25),
-    "claude-sonnet-4-5":          (3.00, 15.00),
-    "claude-3-5-sonnet-20241022": (3.00, 15.00),
+    "claude-haiku-4-5":  (1.00,  5.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
 }
 
 # ── Contador de sesion ────────────────────────────────────────────────────────

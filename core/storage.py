@@ -77,6 +77,7 @@ class Storage:
                 ("signal",       "TEXT", "DEFAULT 'VERDE'"),
                 ("closing_odds", "REAL", ""),
                 ("clv",          "REAL", ""),
+                ("claude_adj",   "REAL", ""),
             ]:
                 try:
                     con.execute(
@@ -319,8 +320,9 @@ class Storage:
                 """
                 INSERT INTO model_picks
                     (saved_at, date, home_team, away_team, league, pick,
-                     odds, edge, model_prob, bankroll_pct, status, pnl, settled_at, signal)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     odds, edge, model_prob, bankroll_pct, status, pnl, settled_at, signal,
+                     claude_adj)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     data.get("saved_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
@@ -337,6 +339,7 @@ class Storage:
                     data.get("pnl", 0.0),
                     data.get("settled_at"),
                     data.get("signal", "VERDE"),
+                    data.get("claude_adj"),
                 ),
             )
             con.commit()
@@ -351,7 +354,7 @@ class Storage:
                     SELECT id, saved_at, date, home_team, away_team, league, pick,
                            odds, edge, model_prob, bankroll_pct, status, pnl, settled_at,
                            COALESCE(signal, 'VERDE') as signal,
-                           closing_odds, clv
+                           closing_odds, clv, claude_adj
                     FROM model_picks
                     WHERE status = ?
                     ORDER BY id DESC LIMIT ?
@@ -364,7 +367,7 @@ class Storage:
                     SELECT id, saved_at, date, home_team, away_team, league, pick,
                            odds, edge, model_prob, bankroll_pct, status, pnl, settled_at,
                            COALESCE(signal, 'VERDE') as signal,
-                           closing_odds, clv
+                           closing_odds, clv, claude_adj
                     FROM model_picks
                     ORDER BY id DESC LIMIT ?
                     """,
@@ -373,7 +376,7 @@ class Storage:
         cols = (
             "id", "saved_at", "date", "home_team", "away_team", "league", "pick",
             "odds", "edge", "model_prob", "bankroll_pct", "status", "pnl", "settled_at",
-            "signal", "closing_odds", "clv",
+            "signal", "closing_odds", "clv", "claude_adj",
         )
         return [dict(zip(cols, row)) for row in rows]
 

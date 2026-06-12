@@ -302,6 +302,8 @@ class ResultsView(ctk.CTkFrame):
                 "status":      "PENDING",
                 "pnl":         0.0,
                 "signal":      signal,   # ── Fix ②: VERDE o AMARILLO ─────────
+                # Magnitud del ajuste Claude — para auditar la capa IA con picks liquidados
+                "claude_adj":  float(row["claude_adj"]) if pd.notna(row.get("claude_adj")) else None,
             }
             self.app.storage.save_model_pick(data)
             saved += 1

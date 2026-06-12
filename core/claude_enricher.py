@@ -194,14 +194,25 @@ class ClaudeFeatureEnricher:
                     pass
         ctx_block = ("\nContexto estadístico del partido:\n" + "\n".join(ctx_lines)) if ctx_lines else ""
 
+        # ── Noticias frescas (DDG) — la información que Claude NO tiene ───────
+        # Sin esto, Claude evalúa lesiones/motivación desde su fecha de corte
+        # de entrenamiento: valores inventados que mueven probabilidades reales.
+        try:
+            from .news_search import fetch_match_news
+            news_items = fetch_match_news(home, away)
+        except Exception:
+            news_items = []
+        news_block = (
+            "\nNoticias recientes del partido (fuente: búsqueda web de hoy):\n"
+            + "\n".join(f"  - {n}" for n in news_items)
+        ) if news_items else "\n(No hay noticias recientes disponibles.)"
+
         prompt = (
             "Eres un experto en análisis táctico y scouting de fútbol europeo. "
             f"Evalúa el partido: {home} vs {away}"
             f"{' (' + league + ')' if league else ''}."
-            f"{ctx_block}\n\n"
-            "Basándote en tu conocimiento histórico de estos equipos, sus estilos tácticos, "
-            "rivalidades y el contexto estadístico anterior, devuelve EXACTAMENTE este JSON "
-            "(sin texto extra, sin markdown, sin explicaciones):\n"
+            f"{ctx_block}\n{news_block}\n\n"
+            "Devuelve EXACTAMENTE este JSON (sin texto extra, sin markdown):\n"
             "{\n"
             '  "f_claude_injury_home": <0.0–1.0>,\n'
             '  "f_claude_injury_away": <0.0–1.0>,\n'
@@ -212,23 +223,47 @@ class ClaudeFeatureEnricher:
             "}\n\n"
             "Guía:\n"
             "· injury_home/away  — 0.0=plantilla completa  0.5=baja menor  1.0=titular clave lesionado\n"
+            "    IMPORTANTE: basa las lesiones SOLO en las noticias recientes de arriba.\n"
+            "    Si las noticias no mencionan bajas (o no hay noticias), usa 0.5.\n"
+            "    NO uses tu conocimiento de entrenamiento para lesiones: está desactualizado.\n"
             "· motivation_h/a    — 0.0=partido sin interés  0.5=normal  1.0=final/partido decisivo\n"
+            "    Prioriza las noticias; tu conocimiento solo para contexto general (rivalidades, etc.).\n"
             "· tactical_edge     — 0.0=desventaja táctica del local  0.5=neutro  1.0=ventaja táctica clara\n"
             "· surprise_risk     — 0.0=resultado esperado muy probable  0.5=normal  1.0=alta incertidumbre\n"
             "Si no tienes información precisa sobre algún valor, usa 0.5."
         )
+
+        # Structured output: la API garantiza JSON válido conforme al schema
+        # (soportado en haiku-4-5 / sonnet-4-6+; fallback a parseo manual si no)
+        _schema = {
+            "type": "object",
+            "properties": {k: {"type": "number"} for k in _CLAUDE_FEATURES},
+            "required": list(_CLAUDE_FEATURES),
+            "additionalProperties": False,
+        }
 
         client = anthropic.Anthropic(api_key=self._api_key)
         raw    = None
 
         for model in _MODELS_PREFERRED:
             try:
-                msg = client.messages.create(
-                    model=model,
-                    max_tokens=180,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                raw = msg.content[0].text.strip()
+                try:
+                    msg = client.messages.create(
+                        model=model,
+                        max_tokens=180,
+                        messages=[{"role": "user", "content": prompt}],
+                        output_config={"format": {"type": "json_schema", "schema": _schema}},
+                    )
+                except (TypeError, anthropic.BadRequestError):
+                    # SDK antiguo o modelo sin structured outputs → llamada normal
+                    msg = client.messages.create(
+                        model=model,
+                        max_tokens=180,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                raw = next(
+                    (b.text for b in msg.content if getattr(b, "type", "") == "text"), ""
+                ).strip()
                 _track(model, msg.usage.input_tokens, msg.usage.output_tokens)
                 self.n_calls += 1
                 break

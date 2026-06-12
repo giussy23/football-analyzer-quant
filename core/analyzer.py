@@ -906,11 +906,19 @@ class Analyzer:
                     _claude_feats["f_claude_injury_home"] = _injury_home_score
                     _claude_feats["f_claude_injury_away"] = _injury_away_score
 
+                # claude_adj: magnitud del ajuste cualitativo (máx |Δprob| sobre 1X2).
+                # Se persiste con el pick para poder medir, con picks liquidados,
+                # si la capa Claude mejora o empeora la calibración.
+                claude_adj = 0.0
                 if _claude_feats:
                     try:
                         from .claude_enricher import ClaudeFeatureEnricher as _CE
+                        _pre = (p_home, p_draw, p_away)
                         p_home, p_draw, p_away, p_over = _CE.adjust_probabilities(
                             p_home, p_draw, p_away, p_over, _claude_feats
+                        )
+                        claude_adj = max(
+                            abs(p_home - _pre[0]), abs(p_draw - _pre[1]), abs(p_away - _pre[2])
                         )
                     except Exception as _adj_exc:
                         logger.debug("Probability adjustment error: %s", _adj_exc)
@@ -1103,6 +1111,8 @@ class Analyzer:
                     "p_home_ml":       round(p_home_ml, 4),
                     "p_draw_ml":       round(p_draw_ml, 4),
                     "p_away_ml":       round(p_away_ml, 4),
+                    # Magnitud del ajuste Claude (0 = sin ajuste) — para auditar la capa IA
+                    "claude_adj":      round(claude_adj, 4),
                     "p_home_dc":       round(dc_h, 4) if dc_h is not None else None,
                     "p_draw_dc":       round(dc_d, 4) if dc_d is not None else None,
                     "p_away_dc":       round(dc_a, 4) if dc_a is not None else None,
