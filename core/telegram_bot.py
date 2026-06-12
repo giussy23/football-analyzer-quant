@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import Counter
 from datetime import datetime
 from datetime import date as _date
@@ -151,6 +152,9 @@ class TelegramBot:
         # ── Callbacks inline (botones) ────────────────────────────────────────
         self._pending_callbacks: dict[str, dict] = {}  # token → pick_data
         self._cb_counter:        int = 0
+
+        # Autorización de grupos: {group_id: (autorizado, timestamp)}
+        self._group_auth_cache: dict[str, tuple[bool, float]] = {}
 
         self._value_alerts_enabled:  bool  = False
         self._value_edge_threshold:  float = 0.05
@@ -416,12 +420,16 @@ class TelegramBot:
 
     # ── Dispatcher ────────────────────────────────────────────────────────────
 
-    def _authorized(self, chat_id) -> bool:
+    def _authorized(self, chat_id, chat_type: str = "private") -> bool:
         """Whitelist: solo el/los chat_id configurados en Settings pueden usar el bot.
 
-        Si telegram_chat_id está vacío (setup inicial) se permite todo, para que
-        el usuario pueda descubrir su chat_id con /ping antes de configurarlo.
-        Acepta varios ids separados por coma (p.ej. privado + grupo).
+        - telegram_chat_id vacío (setup inicial) → se permite todo, para poder
+          descubrir el chat_id con /ping antes de configurarlo.
+        - Acepta varios ids separados por coma (p.ej. privado + grupo concreto).
+        - GRUPOS: se aceptan automáticamente los grupos donde el DUEÑO (el id
+          privado configurado) sea miembro — verificado vía getChatMember y
+          cacheado. Así los grupos de confianza funcionan sin configurar nada,
+          pero un extraño que añada el bot a SU grupo no obtiene acceso.
         """
         if self._storage is None:
             return True
@@ -431,15 +439,48 @@ class TelegramBot:
         allowed_ids = {a.strip() for a in allowed.split(",") if a.strip()}
         if str(chat_id) in allowed_ids:
             return True
-        logger.warning("Telegram: comando rechazado de chat_id no autorizado: %s", chat_id)
+        if chat_type in ("group", "supergroup") and self._owner_in_group(chat_id, allowed_ids):
+            return True
+        logger.warning("Telegram: comando rechazado de chat no autorizado: %s (%s)",
+                       chat_id, chat_type)
         return False
+
+    def _owner_in_group(self, group_id, allowed_ids: set) -> bool:
+        """True si alguno de los ids privados de la whitelist (en chats privados
+        chat_id == user_id) es miembro del grupo. Cachea positivos toda la
+        sesión y negativos durante 5 min (por si el dueño entra al grupo)."""
+        key = str(group_id)
+        cached = self._group_auth_cache.get(key)
+        if cached is not None:
+            ok, ts = cached
+            if ok or (time.time() - ts) < 300:
+                return ok
+        ok = False
+        for uid in allowed_ids:
+            if uid.startswith("-"):   # ids negativos son grupos, no usuarios
+                continue
+            try:
+                resp = requests.get(
+                    _API.format(token=self.token, method="getChatMember"),
+                    params={"chat_id": group_id, "user_id": uid},
+                    timeout=10,
+                )
+                data   = resp.json()
+                status = ((data.get("result") or {}).get("status") or "")
+                if data.get("ok") and status in ("creator", "administrator", "member", "restricted"):
+                    ok = True
+                    break
+            except Exception as exc:
+                logger.debug("getChatMember %s/%s falló: %s", group_id, uid, exc)
+        self._group_auth_cache[key] = (ok, time.time())
+        return ok
 
     def _dispatch(self, upd: dict) -> None:
         # ── Botones inline (callback_query) ───────────────────────────────────
         cbq = upd.get("callback_query")
         if cbq:
-            cbq_chat = (cbq.get("message") or {}).get("chat", {}).get("id")
-            if not self._authorized(cbq_chat):
+            cbq_chat = (cbq.get("message") or {}).get("chat", {})
+            if not self._authorized(cbq_chat.get("id"), cbq_chat.get("type", "private")):
                 return
             self._handle_callback(cbq)
             return
@@ -452,7 +493,7 @@ class TelegramBot:
         if not chat_id or not raw_txt.startswith("/"):
             return
 
-        if not self._authorized(chat_id):
+        if not self._authorized(chat_id, chat_type):
             return
 
         # ── Extraer el comando y destinatario ─────────────────────────────────
