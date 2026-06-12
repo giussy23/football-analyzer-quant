@@ -527,17 +527,50 @@ class PremiumApp(ctk.CTk):
         # ── Detrás de todo ────────────────────────────────────────────────
         tk.Misc.lower(c)
 
+    def _make_aurora_image(self, w: int, h: int, t: dict):
+        """Genera el resplandor de aurora boreal del tema 🌌 Aurora: degradado
+        índigo + tres glows gaussianos (aqua/violeta) renderizados a baja
+        resolución con numpy y reescalados (suave y rápido, ~90 ms a 1080p).
+        Devuelve un PhotoImage o None si algo falla."""
+        try:
+            import numpy as np
+            from PIL import Image, ImageTk
+
+            def _hx(c: str):
+                c = c.lstrip("#")
+                return np.array([int(c[i:i+2], 16) for i in (0, 2, 4)], float)
+
+            sw, sh = 220, 140
+            yy, xx = np.mgrid[0:sh, 0:sw].astype(float)
+            yn, xn = yy / (sh - 1), xx / (sw - 1)
+            bg, top = _hx(t["bg"]), _hx(t.get("card2", t["bg"]))
+            a1, a2  = _hx(t["accent"]), _hx(t["accent2"])
+            base = bg[None, None, :] * yn[..., None] + top[None, None, :] * (1 - yn[..., None])
+
+            def _glow(cx, cy, sx, sy, col, s):
+                g = np.exp(-(((xn - cx) / sx) ** 2 + ((yn - cy) / sy) ** 2))
+                return g[..., None] * col[None, None, :] * s
+
+            out = (base
+                   + _glow(0.28, 0.12, 0.33, 0.20, a1, 0.55)
+                   + _glow(0.72, 0.06, 0.38, 0.18, a2, 0.50)
+                   + _glow(0.50, 0.32, 0.55, 0.30, a1, 0.16))
+            out = np.clip(out, 0, 255).astype("uint8")
+            im  = Image.fromarray(out, "RGB").resize((max(w, 1), max(h, 1)), Image.BILINEAR)
+            return ImageTk.PhotoImage(im)
+        except Exception:
+            logger.debug("Aurora: no se pudo generar el fondo", exc_info=True)
+            return None
+
     def _update_bg_decor(self) -> None:
-        """Redibuja la decoración del fondo según el tema activo.
+        """Redibuja la decoración del fondo según el tema activo:
+          · decor="balls"  (⚽ Estadio) → balones flotando
+          · decor="aurora" (🌌 Aurora)  → resplandor de aurora + polvo estelar
+          · resto → solo las estrellas de siempre
 
-        Los temas con decor="balls" (⚽ Estadio) muestran balones ⚽ flotando
-        en el canvas de fondo (en los márgenes alrededor del contenido); el
-        resto solo las estrellas de siempre.
-
-        NOTA: una versión anterior los pintaba en un Toplevel transparente
-        "por encima" de los paneles, pero esa capa colgaba la app en Windows
-        (transparentcolor + clic-through + seguir a la ventana). Revertido al
-        canvas de fondo, que es estable.
+        Todo en el canvas de fondo (estable). NOTA: una versión previa usó un
+        Toplevel transparente "por encima" de los paneles y colgaba la app en
+        Windows — no reintentar.
         """
         import random as _rng
         from .core.themes import get_current_theme
@@ -546,23 +579,42 @@ class PremiumApp(ctk.CTk):
         if c is None or not c.winfo_exists():
             return
         c.delete("decor_ball")
+        c.delete("decor_bg")
+        self._aurora_photo = None   # liberar referencia previa
         self._decor_balls = []
 
-        t = get_current_theme()
-        if t.get("decor") != "balls":
+        t     = get_current_theme()
+        decor = t.get("decor")
+        sw    = self.winfo_screenwidth()
+        sh    = self.winfo_screenheight()
+
+        if decor not in ("balls", "aurora"):
             return
 
+        # ── Fondo de aurora (imagen) por debajo de las estrellas ──────────────
+        if decor == "aurora":
+            photo = self._make_aurora_image(sw, sh, t)
+            if photo is not None:
+                self._aurora_photo = photo   # mantener referencia viva
+                bid = c.create_image(0, 0, anchor="nw", image=photo, tags="decor_bg")
+                c.tag_lower(bid)             # detrás de las estrellas
+
+        # ── Partículas a la deriva (balones o polvo estelar) ──────────────────
+        if decor == "balls":
+            n, sizes, char = 14, [16, 20, 24, 30, 38], "⚽"
+        else:  # aurora → polvo estelar
+            n, sizes, char = 18, [10, 12, 14, 18, 22], "✦"
+
         rng = _rng.Random()
-        sw  = self.winfo_screenwidth()
-        sh  = self.winfo_screenheight()
-        for _ in range(14):
+        for _ in range(n):
             x    = rng.randint(0, sw)
             y    = rng.randint(0, sh)
-            size = rng.choice([16, 20, 24, 30, 38])
-            # Los grandes más visibles (cerca), los pequeños apagados (lejos)
-            fill = t["muted"] if size < 24 else t["accent2"]
+            size = rng.choice(sizes)
+            big  = size >= (24 if decor == "balls" else 18)
+            fill = t["accent2"] if (big and decor == "balls") else (
+                   t["accent"] if big else t["muted"])
             item = c.create_text(
-                x, y, text="⚽", fill=fill,
+                x, y, text=char, fill=fill,
                 font=("Segoe UI Symbol", size), tags="decor_ball",
             )
             # (item, velocidad_x, velocidad_y) — deriva lenta tipo "flotar"

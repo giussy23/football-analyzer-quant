@@ -151,6 +151,32 @@ THEMES: dict[str, dict] = {
         "decor":            "balls",
     },
 
+    # Tema premium: aurora boreal sobre cielo de medianoche. Doble acento
+    # aqua + violeta eléctrico; el fondo de los márgenes lleva un resplandor
+    # de aurora generado por imagen (decor="aurora") + polvo estelar a la
+    # deriva. Paleta cohesiva pensada para impacto visual de alta gama.
+    "🌌 Aurora": {
+        "label":            "🌌 Aurora",
+        "bg":               "#070514",
+        "card":             "#0e0a22",
+        "card2":            "#141029",
+        "accent":           "#4de3c8",   # aqua-aurora luminoso
+        "accent2":          "#7c5cff",   # violeta-índigo eléctrico
+        "border":           "#3b3a7a",
+        "muted":            "#8a86c0",
+        "text":             "#eef0ff",
+        "nav_active_bg":    "#1c1745",
+        "nav_inactive_text":"#9d9bc8",
+        "nav_inactive_bg":  "#0c0820",
+        "nav_hover_bg":     "#15102e",
+        "run_btn":          "#5b46c9",
+        "run_btn_hover":    "#7c5cff",
+        "swatch":           "#7c5cff",
+        "sidebar_bg":       "#0a0720",
+        "sidebar_border":   "#7c5cff",
+        "decor":            "aurora",
+    },
+
     "Océano": {
         "label":            "Océano",
         "bg":               "#020a14",
