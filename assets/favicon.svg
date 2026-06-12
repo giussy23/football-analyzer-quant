@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<defs>
+  <radialGradient id="bg" cx="40%" cy="35%" r="75%">
+    <stop offset="0%" stop-color="#0e2016"/>
+    <stop offset="100%" stop-color="#020604"/>
+  </radialGradient>
+  <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#38bdf8"/>
+    <stop offset="100%" stop-color="#22c55e"/>
+  </linearGradient>
+  <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+<circle cx="32" cy="32" r="31" fill="#22c55e" fill-opacity="0.06"/>
+<circle cx="32" cy="32" r="30" fill="url(#bg)"/>
+<circle cx="32" cy="32" r="30" fill="none" stroke="url(#g)" stroke-width="1.5" stroke-opacity="0.8"/>
+<text x="32" y="44"
+      font-family="Georgia, serif"
+      font-size="38" font-style="italic" font-weight="bold"
+      fill="url(#g)" text-anchor="middle" filter="url(#glow)">α</text>
+</svg>

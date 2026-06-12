@@ -1,3 +1,5 @@
+# © 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.
+# AlphaBet v15.0 — Software de uso privado. Prohibida su distribución sin autorización expresa.
 """
 features.py — Ingeniería de características: estadísticas de equipo + mercado.
 
@@ -118,22 +120,71 @@ _NAN_KEYS = (
     "shots", "shots_on", "corners",
     "pts_last3", "pts_trend", "gf_last3", "ga_last3",
     "shot_accuracy", "xg_proxy",
+    # v12 — decay + xG quality + clean sheets + BTTS
+    "pts_w", "gf_w", "ga_w",
+    "pts_last5", "gf_last5", "ga_last5",
+    "xg_quality",
+    "clean_sheet_rate",
+    "btts_rate",
+    "scoring_eff",
+    # v14 — rachas consecutivas
+    "win_streak", "loss_streak", "unbeaten",
 )
 
 
-def _team_snapshot(team_df: pd.DataFrame) -> dict:
-    """Estadísticas generales + forma reciente + xG proxy de un conjunto de partidos."""
+def _count_streak(pts_list: list, target_pts: int) -> int:
+    """Cuenta partidos consecutivos con `target_pts` al final de la serie."""
+    count = 0
+    for p in reversed(pts_list):
+        if p == target_pts:
+            count += 1
+        else:
+            break
+    return count
+
+
+def _count_unbeaten(pts_list: list) -> int:
+    """Cuenta partidos consecutivos sin perder al final de la serie."""
+    count = 0
+    for p in reversed(pts_list):
+        if p > 0:
+            count += 1
+        else:
+            break
+    return count
+
+
+def _team_snapshot(team_df: pd.DataFrame, decay_halflife: int = 7) -> dict:
+    """
+    Estadísticas generales + forma reciente con decay exponencial + métricas de calidad.
+
+    decay_halflife=7: un partido jugado hace 7 juegos pesa el 50% de uno de hoy.
+    Esto es más honesto que promedios simples — la forma reciente importa más.
+    """
     if team_df.empty:
         return {k: np.nan for k in _NAN_KEYS}
 
-    sdf       = team_df.sort_values("idx")
-    gf        = float(sdf["gf"].mean())
-    ga        = float(sdf["ga"].mean())
+    sdf = team_df.sort_values("idx")
+    n   = len(sdf)
+    gf  = float(sdf["gf"].mean())
+    ga  = float(sdf["ga"].mean())
 
-    # ── Forma reciente ────────────────────────────────────────────────────────
-    n         = len(sdf)
-    last3     = sdf.tail(3)
-    prev3     = sdf.iloc[max(0, n - 6): max(0, n - 3)]
+    # ── Decay exponencial ─────────────────────────────────────────────────────
+    # Peso del partido más reciente = 1, hace 7 juegos = 0.5, hace 14 = 0.25
+    ages    = np.arange(n - 1, -1, -1).astype(float)  # 0 = más reciente
+    w       = np.exp(-ages * np.log(2) / decay_halflife)
+    w       = w / w.sum()                              # normalizar a suma 1
+    pts_arr = sdf["pts"].fillna(0).values
+    gf_arr  = sdf["gf"].fillna(0).values
+    ga_arr  = sdf["ga"].fillna(0).values
+    pts_w   = float(np.dot(w, pts_arr))
+    gf_w    = float(np.dot(w, gf_arr))
+    ga_w    = float(np.dot(w, ga_arr))
+
+    # ── Forma reciente — ventanas 3 y 5 ──────────────────────────────────────
+    last3 = sdf.tail(3)
+    last5 = sdf.tail(5)
+    prev3 = sdf.iloc[max(0, n - 6): max(0, n - 3)]
 
     pts_last3 = float(last3["pts"].mean()) if len(last3) >= 1 else np.nan
     pts_prev3 = float(prev3["pts"].mean()) if len(prev3) >= 2 else np.nan
@@ -143,14 +194,39 @@ def _team_snapshot(team_df: pd.DataFrame) -> dict:
         else np.nan
     )
 
-    # ── Calidad de disparo / xG proxy ─────────────────────────────────────────
+    # ── Calidad de disparo / xG mejorado ─────────────────────────────────────
     shots    = pd.to_numeric(sdf["shots"],    errors="coerce")
     shots_on = pd.to_numeric(sdf["shots_on"], errors="coerce")
-    s_sum    = shots.sum(skipna=True)
-    so_sum   = shots_on.sum(skipna=True)
+    corners  = pd.to_numeric(sdf["corners"],  errors="coerce")
+
+    s_sum  = shots.sum(skipna=True)
+    so_sum = shots_on.sum(skipna=True)
     shot_acc = float(so_sum / s_sum) if s_sum > 0 else np.nan
-    # Proxy xG: disparos a puerta × tasa histórica media de gol (~0.35)
+
+    # xg_proxy clásico (backward compatible)
     xg_proxy = float(shots_on.mean()) * 0.35 if shots_on.notna().any() else np.nan
+
+    # xg_quality: SOT×0.33 + shots_off×0.05 + corners×0.02
+    # Mucho más preciso — distingue la calidad de las ocasiones
+    shots_off = (shots.fillna(0) - shots_on.fillna(0)).clip(lower=0)
+    xg_quality = float(
+        (shots_on.fillna(0) * 0.33
+         + shots_off * 0.05
+         + corners.fillna(0) * 0.02).mean()
+    ) if shots.notna().any() else np.nan
+
+    # Eficiencia goleadora: goles / disparos a puerta (calibra la puntería real)
+    scoring_eff = float(sdf["gf"].sum() / so_sum) if so_sum > 0 else np.nan
+
+    # ── Métricas defensivas y de patrón de gol ────────────────────────────────
+    clean_sheet_rate = float((sdf["ga"] == 0).mean())
+    btts_rate        = float(((sdf["gf"] > 0) & (sdf["ga"] > 0)).mean())
+
+    # ── Rachas consecutivas ───────────────────────────────────────────────────
+    pts_list    = sdf.sort_values("idx")["pts"].fillna(0).tolist()
+    win_streak  = _count_streak(pts_list, 3)
+    loss_streak = _count_streak(pts_list, 0)
+    unbeaten    = _count_unbeaten(pts_list)
 
     return {
         "pts":       float(sdf["pts"].mean()),
@@ -159,17 +235,33 @@ def _team_snapshot(team_df: pd.DataFrame) -> dict:
         "goal_diff": gf - ga,
         "over25":    float(sdf["over25"].mean()),
         "win_rate":  float((sdf["pts"] == 3).mean()),
-        "shots":     float(shots.mean()),
-        "shots_on":  float(shots_on.mean()),
-        "corners":   float(pd.to_numeric(sdf["corners"], errors="coerce").mean()),
-        # Forma reciente
-        "pts_last3": pts_last3,
-        "pts_trend": pts_trend,
-        "gf_last3":  float(last3["gf"].mean()) if len(last3) >= 1 else np.nan,
-        "ga_last3":  float(last3["ga"].mean()) if len(last3) >= 1 else np.nan,
+        "shots":     float(shots.mean()) if shots.notna().any() else np.nan,
+        "shots_on":  float(shots_on.mean()) if shots_on.notna().any() else np.nan,
+        "corners":   float(corners.mean()) if corners.notna().any() else np.nan,
+        # Forma reciente (ventanas 3 y 5)
+        "pts_last3":  pts_last3,
+        "pts_trend":  pts_trend,
+        "gf_last3":   float(last3["gf"].mean()) if len(last3) >= 1 else np.nan,
+        "ga_last3":   float(last3["ga"].mean()) if len(last3) >= 1 else np.nan,
+        "pts_last5":  float(last5["pts"].mean()) if len(last5) >= 3 else np.nan,
+        "gf_last5":   float(last5["gf"].mean()) if len(last5) >= 3 else np.nan,
+        "ga_last5":   float(last5["ga"].mean()) if len(last5) >= 3 else np.nan,
+        # Forma con decay (más honesta que promedios simples)
+        "pts_w": pts_w,
+        "gf_w":  gf_w,
+        "ga_w":  ga_w,
         # Calidad de ataque
-        "shot_accuracy": shot_acc,
-        "xg_proxy":      xg_proxy,
+        "shot_accuracy":  shot_acc,
+        "xg_proxy":       xg_proxy,
+        "xg_quality":     xg_quality,
+        "scoring_eff":    scoring_eff,
+        # Patrón defensivo / goleador
+        "clean_sheet_rate": clean_sheet_rate,
+        "btts_rate":        btts_rate,
+        # Rachas (v14)
+        "win_streak":  win_streak,
+        "loss_streak": loss_streak,
+        "unbeaten":    unbeaten,
     }
 
 
@@ -179,23 +271,36 @@ def _h2h_snapshot(
     away_team: str,
     idx_limit: int | None = None,
 ) -> dict:
-    """H2H: últimos 5 enfrentamientos directos entre ambos equipos."""
+    """
+    H2H: últimos 6 enfrentamientos directos entre ambos equipos.
+    Añade goal_diff y last_result para dar más señal al modelo.
+    """
+    _empty = {
+        "h2h_home_win_rate": np.nan, "h2h_avg_goals": np.nan,
+        "h2h_count": 0, "h2h_goal_diff": np.nan, "h2h_last_result": np.nan,
+    }
     if "opponent" not in long_df.columns:
-        return {"h2h_home_win_rate": np.nan, "h2h_avg_goals": np.nan, "h2h_count": 0}
+        return _empty
 
     mask = (long_df["team"] == home_team) & (long_df["opponent"] == away_team)
     h2h  = long_df[mask].copy()
     if idx_limit is not None:
         h2h = h2h[h2h["idx"] < idx_limit]
-    h2h = h2h.sort_values("idx").tail(5)
+    h2h = h2h.sort_values("idx").tail(6)  # últimos 6 (antes 5)
 
     if len(h2h) < 2:
-        return {"h2h_home_win_rate": np.nan, "h2h_avg_goals": np.nan, "h2h_count": len(h2h)}
+        return {**_empty, "h2h_count": len(h2h)}
+
+    # Último resultado: 1.0 = victoria local, 0.5 = empate, 0.0 = derrota local
+    last_pts = h2h.iloc[-1]["pts"]
+    last_result = 1.0 if last_pts == 3 else (0.5 if last_pts == 1 else 0.0)
 
     return {
         "h2h_home_win_rate": float((h2h["pts"] == 3).mean()),
         "h2h_avg_goals":     float((h2h["gf"] + h2h["ga"]).mean()),
         "h2h_count":         len(h2h),
+        "h2h_goal_diff":     float((h2h["gf"] - h2h["ga"]).mean()),  # NEW: dominio histórico
+        "h2h_last_result":   float(last_result),                      # NEW: inercia reciente
     }
 
 
@@ -203,7 +308,8 @@ def build_team_long(hist_df: pd.DataFrame) -> pd.DataFrame:
     """Convierte el histórico en una tabla larga (una fila por equipo por partido)."""
     recs = []
     for i, r in hist_df.iterrows():
-        base = {"idx": i, "over25": r.over25}
+        date_val = r.get("date") if "date" in r.index else None
+        base = {"idx": i, "over25": r.over25, "date": date_val}
         recs.append({
             **base,
             "team": r.home_team, "opponent": r.away_team, "is_home": 1,
@@ -229,16 +335,151 @@ def build_team_long(hist_df: pd.DataFrame) -> pd.DataFrame:
     return long_df
 
 
+# ── Nuevas funciones auxiliares (v14) ─────────────────────────────────────────
+
+def _rest_days(
+    team: str,
+    match_date,
+    long_df: pd.DataFrame,
+    idx_limit: int | None = None,
+) -> float:
+    """Días desde el último partido del equipo (feature de fatiga/frescura)."""
+    if match_date is None or "date" not in long_df.columns:
+        return np.nan
+    team_matches = long_df[long_df["team"] == team].copy()
+    if idx_limit is not None:
+        team_matches = team_matches[team_matches["idx"] < idx_limit]
+    team_matches = team_matches.dropna(subset=["date"]).sort_values("date")
+    if team_matches.empty:
+        return np.nan
+    last_date = team_matches.iloc[-1]["date"]
+    try:
+        delta = match_date - last_date
+        return float(delta.days)
+    except Exception:
+        return np.nan
+
+
+def _referee_stats(
+    referee: str | None,
+    hist_df: pd.DataFrame | None,
+    idx_limit: int | None = None,
+) -> dict:
+    """Tendencias históricas del árbitro: tarjetas, sesgo local, goles."""
+    empty = {
+        "f_ref_yellows_pg":   np.nan,
+        "f_ref_reds_pg":      np.nan,
+        "f_ref_home_win_pct": np.nan,
+        "f_ref_over25_pct":   np.nan,
+    }
+    if not referee or hist_df is None or "Referee" not in hist_df.columns:
+        return empty
+    ref_df = hist_df[hist_df["Referee"] == referee].copy()
+    if idx_limit is not None:
+        ref_df = ref_df[ref_df.index < idx_limit]
+    if len(ref_df) < 5:
+        return empty
+
+    def _avg(*cols) -> float:
+        vals = [
+            ref_df[c].astype(float)
+            for c in cols if c in ref_df.columns
+        ]
+        if not vals:
+            return np.nan
+        combined = sum(v.fillna(0) for v in vals)
+        return float(combined.mean())
+
+    yellows_pg   = _avg("HY", "AY")
+    reds_pg      = _avg("HR", "AR")
+    home_win_pct = float((ref_df["result"] == "H").mean()) if "result" in ref_df.columns else np.nan
+    over25_pct   = float(ref_df["over25"].mean())          if "over25" in ref_df.columns else np.nan
+
+    return {
+        "f_ref_yellows_pg":   yellows_pg,
+        "f_ref_reds_pg":      reds_pg,
+        "f_ref_home_win_pct": home_win_pct,
+        "f_ref_over25_pct":   over25_pct,
+    }
+
+
+def _elo_features(home_team: str, away_team: str, club_elo) -> dict:
+    """Club ELO desde clubelo.com como features del modelo."""
+    empty = {
+        "f_elo_home":      np.nan,
+        "f_elo_away":      np.nan,
+        "f_elo_diff":      np.nan,
+        "f_elo_prob_home": np.nan,
+        "f_elo_prob_away": np.nan,
+    }
+    if club_elo is None or not club_elo.is_ready():
+        return empty
+    elo_h = club_elo.get_elo(home_team)
+    elo_a = club_elo.get_elo(away_team)
+    pred  = club_elo.predict(home_team, away_team)
+    return {
+        "f_elo_home":      float(elo_h) if elo_h is not None else np.nan,
+        "f_elo_away":      float(elo_a) if elo_a is not None else np.nan,
+        # Bug fix: usar "is not None" en vez de truthiness — ELO=0 es válido
+        "f_elo_diff":      float(elo_h - elo_a) if (elo_h is not None and elo_a is not None) else np.nan,
+        "f_elo_prob_home": float(pred[0]) if pred else np.nan,
+        "f_elo_prob_away": float(pred[2]) if pred else np.nan,
+    }
+
+
+def _xg_hist_features(
+    home_team: str,
+    away_team: str,
+    xg_hist_cache: dict | None,
+) -> dict:
+    """xG medio de la temporada anterior (Understat) como feature del modelo."""
+    empty = {
+        "f_home_xg_hist":  np.nan,
+        "f_home_xga_hist": np.nan,
+        "f_away_xg_hist":  np.nan,
+        "f_away_xga_hist": np.nan,
+        "f_diff_xg_hist":  np.nan,
+    }
+    if not xg_hist_cache:
+        return empty
+    from .understat import get_team_xg
+    h = get_team_xg(home_team, xg_hist_cache)
+    a = get_team_xg(away_team, xg_hist_cache)
+    h_xg  = h["xg"]  if h else np.nan
+    h_xga = h["xga"] if h else np.nan
+    a_xg  = a["xg"]  if a else np.nan
+    a_xga = a["xga"] if a else np.nan
+    diff  = float(h_xg - a_xg) if pd.notna(h_xg) and pd.notna(a_xg) else np.nan
+    return {
+        "f_home_xg_hist":  h_xg,
+        "f_home_xga_hist": h_xga,
+        "f_away_xg_hist":  a_xg,
+        "f_away_xga_hist": a_xga,
+        "f_diff_xg_hist":  diff,
+    }
+
+
 def build_feature_row(
     long_df: pd.DataFrame,
     home_team: str,
     away_team: str,
     idx_limit: int | None = None,
+    # v14: nuevos parámetros opcionales — todos con default None (backward-compatible)
+    hist_df: pd.DataFrame | None = None,
+    match_date=None,
+    referee: str | None = None,
+    club_elo=None,
+    xg_hist_cache: dict | None = None,
+    # v15: features meteorológicas (opcional, backward-compatible)
+    weather: dict | None = None,
+    # v16: features de alineación pre-partido (opcional, backward-compatible)
+    lineup: dict | None = None,
 ) -> dict | None:
     """
     Construye una fila de features para un partido.
 
     idx_limit evita look-ahead bias: solo usa partidos ANTERIORES al índice dado.
+    Los parámetros v14 son todos opcionales: el modelo funciona con NaN cuando faltan.
     """
     h = long_df[long_df["team"] == home_team].copy()
     a = long_df[long_df["team"] == away_team].copy()
@@ -272,17 +513,31 @@ def build_feature_row(
         "f_home_shots":      hs["shots"],
         "f_home_shots_on":   hs["shots_on"],
         "f_home_corners":    hs["corners"],
-        # Forma reciente (home)
+        # Forma reciente (3 y 5 partidos)
         "f_home_pts_last3":  hs["pts_last3"],
         "f_home_pts_trend":  hs["pts_trend"],
         "f_home_gf_last3":   hs["gf_last3"],
         "f_home_ga_last3":   hs["ga_last3"],
+        "f_home_pts_last5":  hs["pts_last5"],
+        "f_home_gf_last5":   hs["gf_last5"],
+        "f_home_ga_last5":   hs["ga_last5"],
+        # Forma con decay exponencial (v12)
+        "f_home_pts_w":      hs["pts_w"],
+        "f_home_gf_w":       hs["gf_w"],
+        "f_home_ga_w":       hs["ga_w"],
+        # Calidad de ataque
         "f_home_shot_acc":   hs["shot_accuracy"],
         "f_home_xg_proxy":   hs["xg_proxy"],
+        "f_home_xg_quality": hs["xg_quality"],
+        "f_home_scoring_eff":hs["scoring_eff"],
+        # Patrón defensivo
+        "f_home_clean_sheet":hs["clean_sheet_rate"],
+        "f_home_btts":       hs["btts_rate"],
         # Home as home
         "f_home_home_pts":   hhs["pts"],
         "f_home_home_gf":    hhs["gf"],
         "f_home_home_ga":    hhs["ga"],
+        "f_home_home_pts_w": hhs["pts_w"],
         # ── Away general ─────────────────────────────────────────────────────
         "f_away_pts":        aws["pts"],
         "f_away_gf":         aws["gf"],
@@ -293,27 +548,75 @@ def build_feature_row(
         "f_away_shots":      aws["shots"],
         "f_away_shots_on":   aws["shots_on"],
         "f_away_corners":    aws["corners"],
-        # Forma reciente (away)
+        # Forma reciente (3 y 5 partidos)
         "f_away_pts_last3":  aws["pts_last3"],
         "f_away_pts_trend":  aws["pts_trend"],
         "f_away_gf_last3":   aws["gf_last3"],
         "f_away_ga_last3":   aws["ga_last3"],
+        "f_away_pts_last5":  aws["pts_last5"],
+        "f_away_gf_last5":   aws["gf_last5"],
+        "f_away_ga_last5":   aws["ga_last5"],
+        # Forma con decay exponencial (v12)
+        "f_away_pts_w":      aws["pts_w"],
+        "f_away_gf_w":       aws["gf_w"],
+        "f_away_ga_w":       aws["ga_w"],
+        # Calidad de ataque
         "f_away_shot_acc":   aws["shot_accuracy"],
         "f_away_xg_proxy":   aws["xg_proxy"],
+        "f_away_xg_quality": aws["xg_quality"],
+        "f_away_scoring_eff":aws["scoring_eff"],
+        # Patrón defensivo
+        "f_away_clean_sheet":aws["clean_sheet_rate"],
+        "f_away_btts":       aws["btts_rate"],
         # Away as away
         "f_away_away_pts":   aas["pts"],
         "f_away_away_gf":    aas["gf"],
         "f_away_away_ga":    aas["ga"],
+        "f_away_away_pts_w": aas["pts_w"],
+        # ── Rachas consecutivas (v14) ─────────────────────────────────────────
+        "f_home_win_streak":  hs["win_streak"],
+        "f_home_loss_streak": hs["loss_streak"],
+        "f_home_unbeaten":    hs["unbeaten"],
+        "f_away_win_streak":  aws["win_streak"],
+        "f_away_loss_streak": aws["loss_streak"],
+        "f_away_unbeaten":    aws["unbeaten"],
         # ── Meta ─────────────────────────────────────────────────────────────
         "f_sample_min": min(len(h_all), len(a_all)),
     }
+
+    # ── Días de descanso (v14) ────────────────────────────────────────────────
+    row["f_home_rest_days"] = _rest_days(home_team, match_date, long_df, idx_limit)
+    row["f_away_rest_days"] = _rest_days(away_team, match_date, long_df, idx_limit)
+    h_rd = row["f_home_rest_days"]
+    a_rd = row["f_away_rest_days"]
+    row["f_diff_rest_days"] = (
+        float(h_rd - a_rd) if pd.notna(h_rd) and pd.notna(a_rd) else np.nan
+    )
+    # Ventaja de descanso (flag binario: local descansa ≥3 días más)
+    row["f_rest_advantage"] = (
+        1.0 if (pd.notna(row["f_diff_rest_days"]) and row["f_diff_rest_days"] >= 3) else
+        (-1.0 if (pd.notna(row["f_diff_rest_days"]) and row["f_diff_rest_days"] <= -3) else 0.0)
+    )
+
+    # ── Club ELO (v14) ────────────────────────────────────────────────────────
+    row.update(_elo_features(home_team, away_team, club_elo))
+
+    # ── xG histórico temporada anterior (v14) ─────────────────────────────────
+    row.update(_xg_hist_features(home_team, away_team, xg_hist_cache))
+
+    # ── Tendencias del árbitro (v14) ──────────────────────────────────────────
+    row.update(_referee_stats(referee, hist_df, idx_limit))
 
     # ── Diferencias home − away ───────────────────────────────────────────────
     for metric in [
         "pts", "gf", "ga", "goal_diff", "over25", "win_rate",
         "shots", "shots_on", "corners",
         "pts_last3", "pts_trend", "gf_last3", "ga_last3",
-        "shot_acc", "xg_proxy",
+        "pts_last5", "gf_last5", "ga_last5",
+        "pts_w", "gf_w", "ga_w",
+        "shot_acc", "xg_proxy", "xg_quality", "scoring_eff",
+        "clean_sheet", "btts",
+        "win_streak", "loss_streak", "unbeaten",
     ]:
         h_val = row.get(f"f_home_{metric}", np.nan)
         a_val = row.get(f"f_away_{metric}", np.nan)
@@ -328,5 +631,22 @@ def build_feature_row(
     row["f_h2h_home_win_rate"] = h2h["h2h_home_win_rate"]
     row["f_h2h_avg_goals"]     = h2h["h2h_avg_goals"]
     row["f_h2h_count"]         = float(h2h["h2h_count"])
+    row["f_h2h_goal_diff"]     = h2h["h2h_goal_diff"]    # NEW
+    row["f_h2h_last_result"]   = h2h["h2h_last_result"]  # NEW
+
+    # ── Weather features (v15) ────────────────────────────────────────────────
+    # 0/default cuando no hay datos — backward-compatible con todos los callers
+    row["f_rain_mm"]     = float(weather.get("rain_mm", 0))          if weather else 0.0
+    row["f_wind_kmh"]    = float(weather.get("wind_kmh", 0))         if weather else 0.0
+    row["f_temp_c"]      = float(weather.get("temp_c", 15))          if weather else 15.0
+    row["f_bad_weather"] = int(weather.get("is_bad_weather", False))  if weather else 0
+
+    # ── Lineup features (v16) ─────────────────────────────────────────────────
+    # 0 cuando no hay datos de alineación — backward-compatible con todos los callers
+    row["f_home_missing_starters"] = int(lineup.get("home_missing", 0)) if lineup else 0
+    row["f_away_missing_starters"] = int(lineup.get("away_missing", 0)) if lineup else 0
+    row["f_lineup_diff_missing"]   = (
+        row["f_home_missing_starters"] - row["f_away_missing_starters"]
+    )
 
     return row

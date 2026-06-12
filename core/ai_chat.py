@@ -1,0 +1,360 @@
+# © 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.
+# AlphaBet v15.0 — Software de uso privado. Prohibida su distribución sin autorización expresa.
+"""
+core/ai_chat.py — Sesión de chat interactivo con Claude IA.
+
+Mantiene historial de conversación y contexto de la app (picks, bankroll,
+resultados recientes) para que Claude actúe como analista cuantitativo personal.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# Importar pricing y modelos del módulo hermano
+from .ai_analysis import _MODELS_PREFERRED, _PRICING, _track
+
+
+class FootballChat:
+    """
+    Sesión de chat multi-turno con Claude IA.
+
+    Uso:
+        chat = FootballChat(api_key="sk-ant-...")
+        chat.update_context(picks=[...], bankroll=1000.0, recent_results=[...])
+        response = chat.send("¿Cuál es el mejor pick de hoy?")
+        chat.clear()
+    """
+
+    def __init__(self, api_key: str) -> None:
+        self.api_key = api_key
+        self._history: list[dict] = []   # [{"role": "user"|"assistant", "content": str}]
+        self._context_block: str = ""    # Bloque de contexto inyectado en cada system prompt
+        self._model_used: str = "—"
+        self._active_view: str = ""
+
+    # ── Contexto ──────────────────────────────────────────────────────────────
+
+    def update_context(
+        self,
+        picks: list[dict] | None = None,
+        bankroll: float | None = None,
+        recent_results: list[dict] | None = None,
+        clv_stats: dict | None = None,
+        edge_threshold: float = 0.03,
+        quiniela_picks: list[dict] | None = None,
+        combinadas: list[dict] | None = None,
+        backtest_summary: dict | None = None,
+        diagnostics: list[str] | None = None,
+        active_view: str | None = None,
+    ) -> None:
+        """
+        Reconstruye el bloque de contexto con los datos actuales de la app.
+
+        picks           — lista de dicts con home_team, away_team, pick, odds, edge,
+                          model_prob, p_home, p_draw, p_away, league, risk_light
+        bankroll        — banca total en euros
+        recent_results  — últimos picks con status (WIN/LOSS/PENDING) y pnl
+        clv_stats       — dict con avg_clv (float), pct_positive (float 0-1)
+        edge_threshold  — umbral de edge configurado
+        quiniela_picks  — lista de dicts de la quiniela actual (15 partidos)
+        combinadas      — lista de combinadas recomendadas del acumulador
+        backtest_summary — métricas del modelo (backtest OOS por liga)
+        diagnostics     — lista de strings de diagnóstico del modelo
+        active_view     — panel activo ("quiniela", "analysis", "accumulator", etc.)
+        """
+        if active_view is not None:
+            self._active_view = active_view
+
+        lines: list[str] = []
+
+        # --- Panel activo ---
+        view_names = {
+            "quiniela":    "Quiniela IA",
+            "analysis":    "Trading Desk",
+            "accumulator": "Combinadas IA",
+            "results":     "Tracker de Resultados",
+            "portfolio":   "Portfolio / Monte Carlo",
+            "alerts":      "Alertas / Monitor de Líneas",
+        }
+        if self._active_view:
+            lines.append(f"Panel activo: {view_names.get(self._active_view, self._active_view)}")
+
+        # --- Bankroll y umbral ---
+        if bankroll is not None and bankroll > 0:
+            lines.append(f"Bankroll: {bankroll:,.0f}€")
+        lines.append(f"Umbral edge: {edge_threshold * 100:.1f}%")
+
+        # --- Picks VERDE/AMARILLO del análisis ---
+        verde = [p for p in (picks or []) if p.get("risk_light") == "VERDE"]
+        amarillo = [p for p in (picks or []) if p.get("risk_light") == "AMARILLO"]
+
+        if verde:
+            lines.append(f"\n== PICKS VERDE HOY ({len(verde)}) ==")
+            for i, p in enumerate(verde[:10], 1):
+                home   = p.get("home_team", "?")
+                away   = p.get("away_team", "?")
+                pick   = p.get("pick", "?")
+                odds   = p.get("odds")
+                edge   = p.get("edge")
+                prob   = p.get("model_prob")
+                league = p.get("league", "")
+                ev     = p.get("ev")
+                parts  = [f"{i}. {home} vs {away} ({league}) — Pick: {pick}"]
+                if odds:
+                    parts.append(f"Cuota: {float(odds):.2f}")
+                if edge:
+                    parts.append(f"Edge: {float(edge)*100:+.1f}%")
+                if prob:
+                    parts.append(f"P(modelo): {float(prob):.0%}")
+                if ev:
+                    parts.append(f"EV: {float(ev)*100:+.1f}%")
+                lines.append(" · ".join(parts))
+        else:
+            lines.append("\n== PICKS HOY ==\nSin picks VERDE en el último análisis.")
+
+        if amarillo:
+            lines.append(f"(+ {len(amarillo)} picks AMARILLO de menor confianza)")
+
+        # --- Quiniela actual ---
+        if quiniela_picks:
+            from collections import Counter
+            picks_vals = [p.get("pick", "?") for p in quiniela_picks]
+            dist = Counter(picks_vals)
+            n1  = dist.get("1", 0)
+            nx  = dist.get("X", 0)
+            n2  = dist.get("2", 0)
+            doubles = sum(1 for v in picks_vals if len(v) == 2)
+            triples = sum(1 for v in picks_vals if len(v) == 3)
+            sources = Counter(p.get("p_source", "?") for p in quiniela_picks)
+            src_str = " · ".join(f"{k}×{v}" for k, v in sources.items())
+
+            lines.append(f"\n== QUINIELA ACTUAL ({len(quiniela_picks)} partidos) ==")
+            lines.append(f"Distribución: 1→{n1} · X→{nx} · 2→{n2} · Dobles→{doubles} · Triples→{triples}")
+            lines.append(f"Fuentes: {src_str}")
+            lines.append("")
+
+            for i, p in enumerate(quiniela_picks, 1):
+                home  = p.get("home_team", "?")
+                away  = p.get("away_team", "?")
+                pick  = p.get("pick", "?")
+                src   = p.get("p_source", "")
+                ph    = p.get("p_home")
+                pd_   = p.get("p_draw")
+                pa    = p.get("p_away")
+                conf  = p.get("claude_confidence")
+                reason = p.get("claude_reason", "")
+
+                # Tipo de signo
+                sign_type = "Simple"
+                if len(str(pick)) == 2:
+                    sign_type = "Doble"
+                elif len(str(pick)) == 3:
+                    sign_type = "Triple"
+
+                pick_line = f"Partido {i}: {home} vs {away}"
+                lines.append(pick_line)
+
+                src_label = {"ml": "ML", "claude": "Claude IA", "club_elo": "Club ELO",
+                             "elo": "ELO", "odds_api": "Odds API"}.get(src, src)
+                detail = f"  Selección: {pick} ({sign_type}) · Fuente: {src_label}"
+                if conf:
+                    detail += f" (confianza {conf}/5)"
+                lines.append(detail)
+
+                if ph is not None and pd_ is not None and pa is not None:
+                    lines.append(
+                        f"  Probabilidades: Casa {float(ph)*100:.0f}% · "
+                        f"Empate {float(pd_)*100:.0f}% · "
+                        f"Vis {float(pa)*100:.0f}%"
+                    )
+                if reason:
+                    lines.append(f"  Razón IA: \"{reason}\"")
+
+        # --- Combinadas ---
+        if combinadas:
+            lines.append(f"\n== COMBINADAS RECOMENDADAS ({len(combinadas)} generadas) ==")
+            for i, combo in enumerate(combinadas[:4], 1):
+                legs  = combo.get("legs", [])
+                odds_c = combo.get("odds", combo.get("combo_odds"))
+                ev_c   = combo.get("ev")
+                rel_c  = combo.get("reliability_score", combo.get("avg_reliability"))
+
+                lines.append(f"\nCombinada {i} ({len(legs)} patas):")
+                if odds_c:
+                    lines.append(f"  Cuota: {float(odds_c):.2f}" +
+                                 (f" · EV: {float(ev_c)*100:+.1f}%" if ev_c else "") +
+                                 (f" · Fiabilidad: {int(rel_c)}" if rel_c else ""))
+                for leg in legs:
+                    lh    = leg.get("home_team", leg.get("home", "?"))
+                    la    = leg.get("away_team", leg.get("away", "?"))
+                    lpick = leg.get("pick", "?")
+                    lodds = leg.get("odds")
+                    ledge = leg.get("edge")
+                    leg_str = f"  • {lh} vs {la} — {lpick}"
+                    if lodds:
+                        leg_str += f" @ {float(lodds):.2f}"
+                    if ledge:
+                        leg_str += f" · Edge {float(ledge)*100:+.1f}%"
+                    lines.append(leg_str)
+
+        # --- Historial reciente ---
+        settled = [p for p in (recent_results or []) if p.get("status") in ("WIN", "LOSS")]
+        if settled:
+            lines.append(f"\n== HISTORIAL RECIENTE (últimos {min(len(settled), 10)}) ==")
+            for p in settled[-10:]:
+                status = p.get("status", "?")
+                icon   = "✅" if status == "WIN" else "❌"
+                match  = f"{p.get('home_team','')} vs {p.get('away_team','')}"
+                pick   = p.get("pick", "")
+                odds   = p.get("odds")
+                clv    = p.get("clv")
+                s = f"{icon} {match} — {pick}"
+                if odds:
+                    s += f" @ {float(odds):.2f}"
+                if clv is not None:
+                    s += f" · CLV: {float(clv)*100:+.1f}%"
+                lines.append(s)
+
+        # --- CLV stats ---
+        if clv_stats:
+            avg      = clv_stats.get("avg_clv")
+            pct      = clv_stats.get("pct_positive")
+            wins_r   = clv_stats.get("win_rate")
+            roi_r    = clv_stats.get("roi")
+            stat_parts = []
+            if avg is not None:
+                stat_parts.append(f"CLV medio: {float(avg)*100:+.1f}%")
+            if pct is not None:
+                stat_parts.append(f"CLV+: {float(pct)*100:.0f}%")
+            if wins_r is not None:
+                stat_parts.append(f"Acierto: {float(wins_r)*100:.0f}%")
+            if roi_r is not None:
+                stat_parts.append(f"ROI: {float(roi_r)*100:+.1f}%")
+            if stat_parts:
+                lines.append("\n== ESTADÍSTICAS ==\n" + " · ".join(stat_parts))
+
+        # --- Backtest / métricas del modelo ---
+        if backtest_summary:
+            lines.append("\n== MÉTRICAS DEL MODELO (BACKTEST OOS) ==")
+            for div, metrics in list(backtest_summary.items())[:5]:
+                roi  = metrics.get("roi")
+                acc  = metrics.get("accuracy")
+                brier = metrics.get("brier_score")
+                parts = [f"Liga {div}:"]
+                if roi is not None:
+                    parts.append(f"ROI {float(roi)*100:+.1f}%")
+                if acc is not None:
+                    parts.append(f"Acierto {float(acc)*100:.0f}%")
+                if brier is not None:
+                    parts.append(f"Brier {float(brier):.3f}")
+                lines.append("  " + " · ".join(parts))
+
+        # --- Diagnósticos ---
+        if diagnostics:
+            lines.append("\n== DIAGNÓSTICO DEL SISTEMA ==")
+            for d in diagnostics[:6]:
+                lines.append(f"  • {d}")
+
+        self._context_block = "\n".join(lines)
+
+    # ── Chat ──────────────────────────────────────────────────────────────────
+
+    def send(self, user_message: str) -> str:
+        """
+        Envía un mensaje a Claude y retorna la respuesta.
+        BLOCKING — ejecutar siempre desde un hilo de fondo.
+        Retorna string de error si falla (nunca lanza excepción al caller).
+        """
+        if not self.api_key:
+            return "⚠ Configura la API key de Anthropic en ⚙️ Strategy para usar el chat."
+
+        view_hint = ""
+        if self._active_view == "quiniela":
+            view_hint = (
+                "El usuario está mirando la QUINIELA IA. Si pregunta por los picks, "
+                "explica en detalle por qué cada partido tiene esa selección, "
+                "qué probabilidades maneja el modelo y si fue decidido por ML o por Claude. "
+            )
+        elif self._active_view == "accumulator":
+            view_hint = (
+                "El usuario está mirando las COMBINADAS IA. Si pregunta por las combinadas, "
+                "explica por qué se agruparon esas patas juntas, el EV combinado y la lógica de diversificación. "
+            )
+        elif self._active_view == "analysis":
+            view_hint = (
+                "El usuario está mirando el TRADING DESK con los picks del análisis. "
+                "Si pregunta por picks concretos, detalla el edge, las probabilidades y las features más influyentes. "
+            )
+        elif self._active_view == "results":
+            view_hint = (
+                "El usuario está mirando su HISTORIAL DE RESULTADOS. "
+                "Ayúdale a interpretar su ROI, CLV y racha reciente. "
+            )
+
+        system = (
+            "Eres un analista cuantitativo de fútbol experto en apuestas de valor. "
+            "Formas parte de AlphaBet v15, un sistema con modelos ML "
+            "(HistGradientBoosting, GradientBoosting, RandomForest), 116 features, "
+            "Club ELO, xG Understat, Kelly fraccionado y CLV tracking.\n\n"
+            + (view_hint if view_hint else "")
+            + "Tienes acceso a los siguientes datos actuales del usuario:\n"
+            + (self._context_block or "Sin datos de contexto disponibles aún.")
+            + "\n\nResponde siempre en español. Sé conciso pero preciso con los números. "
+            "Si el usuario pregunta por picks específicos, apóyate en los datos de contexto."
+        )
+
+        messages = list(self._history) + [{"role": "user", "content": user_message}]
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=self.api_key)
+
+            response_text: Optional[str] = None
+            for model in _MODELS_PREFERRED:
+                try:
+                    msg = client.messages.create(
+                        model=model,
+                        max_tokens=600,
+                        system=system,
+                        messages=messages,
+                    )
+                    response_text = msg.content[0].text.strip()
+                    _track(model, msg.usage.input_tokens, msg.usage.output_tokens)
+                    self._model_used = model
+                    break
+                except anthropic.NotFoundError:
+                    continue
+
+            if response_text is None:
+                return "⚠ Ningún modelo disponible con tu API key."
+
+            # Añadir al historial (máximo 20 turnos para no superar context window)
+            self._history.append({"role": "user",      "content": user_message})
+            self._history.append({"role": "assistant",  "content": response_text})
+            if len(self._history) > 40:   # 20 turnos × 2
+                self._history = self._history[-40:]
+
+            return response_text
+
+        except Exception as exc:
+            logger.warning("FootballChat.send error: %s", exc)
+            return f"⚠ Error al conectar con Claude: {exc}"
+
+    def clear(self) -> None:
+        """Limpia el historial de conversación (el contexto se mantiene)."""
+        self._history.clear()
+
+    @property
+    def model(self) -> str:
+        """Último modelo usado."""
+        return self._model_used
+
+    @property
+    def turn_count(self) -> int:
+        """Número de turnos en el historial actual."""
+        return len(self._history) // 2

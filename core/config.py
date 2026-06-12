@@ -1,9 +1,32 @@
+# © 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.
+# AlphaBet v15.0 — Software de uso privado. Prohibida su distribución sin autorización expresa.
 """
 config.py — Constantes globales, mapas de ligas y paleta de colores.
 """
 
-DB_FILE    = "football_analyzer.db"
-MODEL_FILE = "football_model_v11.joblib"   # v11: momentum + H2H + xG proxy + league tier
+import os as _os
+import sys as _sys
+
+# Carpeta de datos escribible. Empaquetada (instalada en Archivos de programa,
+# solo lectura) → %LOCALAPPDATA%\AlphaBet. En desarrollo → raíz del proyecto
+# (mismo sitio que antes, sin perder la BD existente).
+if getattr(_sys, "frozen", False):
+    DATA_DIR = _os.path.join(
+        _os.environ.get("LOCALAPPDATA") or _os.path.expanduser("~"), "AlphaBet")
+else:
+    DATA_DIR = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+try:
+    _os.makedirs(DATA_DIR, exist_ok=True)
+except Exception:
+    DATA_DIR = _os.path.abspath(".")
+
+DB_FILE    = _os.path.join(DATA_DIR, "football_analyzer.db")
+MODEL_FILE = _os.path.join(DATA_DIR, "football_model_v15.joblib")   # v15: +stacking ensemble (HistGBM + XGBoost + RF) + meta-learner LogisticRegression
+
+# Monitor de líneas
+LINE_POLL_INTERVAL = 300    # segundos entre polls (5 min)
+STEAM_THRESHOLD    = 0.025  # caída ≥2.5% en prob implícita = steam move
+LINE_MOVE_THRESHOLD = 0.015 # caída ≥1.5% = movimiento notable
 
 # Tier de liga: el modelo aprende patrones específicos por nivel competitivo
 LEAGUE_TIER: dict[str, int] = {
@@ -33,15 +56,15 @@ LEAGUE_MAP: dict[str, tuple[str, str | None, str]] = {
     "🌎 Copa Sudamericana": ("CSU", None, "#06b6d4"),
 }
 
-# ── Paleta UI — glassmorphism sobre césped ────────────────────────────────────
-BG       = "#1a5228"   # césped verde medio (visible en áreas transparentes)
-CARD     = "#06100a"   # vidrio oscuro — panel flotante sobre el césped
-CARD_2   = "#091408"   # vidrio ligeramente más claro
-BORDER   = "#2dd45b"   # borde de cristal brillante (reflejo del canto del vidrio)
-TEXT     = "#f0fff4"   # blanco verdoso — máximo contraste sobre vidrio
-MUTED    = "#98d4aa"   # verde suave — legible sobre oscuro y sobre césped
-ACCENT   = "#22c55e"   # verde brillante — botones activos, highlights
-ACCENT_2 = "#16a34a"   # verde oscuro — hover
+# ── Paleta UI — terminal quant oscuro, estilo cyber-trading ──────────────────
+BG       = "#020810"   # negro azulado profundo (deep space)
+CARD     = "#040c18"   # carta vidrio oscuro navy
+CARD_2   = "#060f1f"   # panel secundario
+BORDER   = "#0d9488"   # teal (del logo — ring exterior)
+TEXT     = "#e0f2fe"   # blanco azulado cristalino
+MUTED    = "#4d7a94"   # teal gris apagado
+ACCENT   = "#22d3ee"   # cyan brillante (órbita del logo)
+ACCENT_2 = "#0891b2"   # hover cyan oscuro
 
 OUTCOME_LABELS = ["H", "D", "A"]
 
@@ -59,3 +82,8 @@ MAX_OVERROUND_1X2 = 1.08
 MAX_OVERROUND_OU  = 1.10
 CLV_MIN           = -0.01   # no apostar si CLV < -1 %
 MIN_SAMPLE        = 6       # mínimo de partidos previos por equipo
+
+# Modelos por liga
+MIN_ROWS_PER_LEAGUE   = 300    # mínimo de partidos para entrenar modelo propio
+MODEL_FILE_TEMPLATE   = _os.path.join(DATA_DIR, "football_model_{div}_v15.joblib")  # {div} = E0, SP1, etc.
+USE_LEAGUE_MODELS     = True   # flag para activar/desactivar fácilmente

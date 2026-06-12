@@ -1,3 +1,5 @@
+# © 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.
+# AlphaBet v15.0 — Software de uso privado. Prohibida su distribución sin autorización expresa.
 """
 core/odds_api.py — Integración con The Odds API.
 
@@ -90,6 +92,13 @@ def fetch_odds_fixtures(
             resp.raise_for_status()
             requests_remaining = resp.headers.get("x-requests-remaining")
             data = resp.json()
+            # Bug fix: la API puede devolver dict de error con HTTP 200
+            if not isinstance(data, list):
+                logger.warning(
+                    "Odds API devolvió formato inesperado para %s: %s — %s",
+                    div, type(data).__name__, str(data)[:120],
+                )
+                continue
         except requests.HTTPError as exc:
             code = exc.response.status_code if exc.response is not None else "?"
             if code == 401:

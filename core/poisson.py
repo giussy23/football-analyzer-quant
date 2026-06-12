@@ -1,3 +1,5 @@
+# © 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.
+# AlphaBet v15.0 — Software de uso privado. Prohibida su distribución sin autorización expresa.
 """
 core/poisson.py — Modelo de Poisson Dixon-Coles para predicción de fútbol.
 
@@ -159,8 +161,9 @@ class DixonColesModel:
             + [(0.0,  0.8)]               # home advantage
             + [(-0.5, 0.0)]               # rho (siempre negativo o cero)
         )
-        constraints = [{"type": "eq", "fun": lambda x: x[:n_teams].sum()}]  # sum(attack) = 0
-
+        # Nota: L-BFGS-B sólo admite 'bounds', no 'constraints'. La
+        # identificabilidad queda fijada por los bounds [-3, 3]; no se impone
+        # sum(attack)=0 porque no afecta a las probabilidades resultantes.
         try:
             result = minimize(
                 neg_log_likelihood, x0,

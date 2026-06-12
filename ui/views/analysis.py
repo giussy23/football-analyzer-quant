@@ -376,7 +376,7 @@ class AnalysisView(ctk.CTkFrame):
             placeholder_text="Buscar equipo, liga o pick",
             fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
         ).pack(side="left", fill="x", expand=True)
-        self.app.search_var.trace_add("write", lambda *_: self.app.apply_filters())
+        self.app.search_var.trace_add("write", lambda *_: self.app._schedule_filter())
 
         # KPI hero row — estilo marcador eléctrico de estadio
         hero = ctk.CTkFrame(
@@ -639,7 +639,16 @@ class AnalysisView(ctk.CTkFrame):
     }
 
     def fill_cards(self, df: pd.DataFrame) -> None:
-        """Crea una tarjeta visual por cada partido del DataFrame."""
+        """Crea una tarjeta por partido, POR LOTES, para no congelar la UI:
+        construye ~15 tarjetas y cede el control al event loop antes de seguir."""
+        # Cancelar un render por lotes que pudiera estar en curso
+        if getattr(self, "_cards_after_id", None):
+            try:
+                self.after_cancel(self._cards_after_id)
+            except Exception:
+                pass
+            self._cards_after_id = None
+
         # Limpiar tarjetas anteriores
         for w in self._cards_outer.winfo_children():
             w.destroy()
@@ -659,17 +668,31 @@ class AnalysisView(ctk.CTkFrame):
             ["reliability_score", "ev", "edge"],
             ascending=[False, False, False], na_position="last",
         )
-        for idx, (_, row) in enumerate(sorted_df.iterrows()):
-            key = f"{row.get('home_team', '')}::{row.get('away_team', '')}"
-            card = self._make_match_card(self._cards_outer, row, key)
-            card.pack(fill="x", padx=8, pady=(0, 6) if idx > 0 else (6, 6))
-            self._card_widgets[key] = card
-            self._card_rows[key]    = row
+        rows = list(sorted_df.iterrows())
 
-        # Seleccionar la primera tarjeta
-        if self._card_widgets:
-            first_key = next(iter(self._card_widgets))
-            self._on_card_click(first_key)
+        def _build_batch(start: int, batch: int = 15) -> None:
+            try:
+                if not self._cards_outer.winfo_exists():
+                    return
+            except Exception:
+                return
+            for idx in range(start, min(start + batch, len(rows))):
+                _, row = rows[idx]
+                key = f"{row.get('home_team', '')}::{row.get('away_team', '')}"
+                card = self._make_match_card(self._cards_outer, row, key)
+                card.pack(fill="x", padx=8, pady=(0, 6) if idx > 0 else (6, 6))
+                self._card_widgets[key] = card
+                self._card_rows[key]    = row
+            # Seleccionar la primera tarjeta en cuanto está el primer lote
+            if start == 0 and self._card_widgets:
+                self._on_card_click(next(iter(self._card_widgets)))
+            nxt = start + batch
+            if nxt < len(rows):
+                self._cards_after_id = self.after(1, lambda: _build_batch(nxt, batch))
+            else:
+                self._cards_after_id = None
+
+        _build_batch(0)
 
     def _make_match_card(self, parent, row: pd.Series, key: str) -> ctk.CTkFrame:
         """Construye una tarjeta visual de partido."""

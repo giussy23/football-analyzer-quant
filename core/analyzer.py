@@ -91,6 +91,56 @@ def fractional_kelly(
     return round(max(0.0, min(full_kelly * frac, cap)), 4)
 
 
+def dynamic_kelly_fraction(
+    prob:        float,
+    odds:        float,
+    settled_pnl: list[float],
+    base_frac:   float = KELLY_FRACTION,
+    cap:         float = KELLY_CAP,
+    n_window:    int   = 20,
+) -> tuple[float, float]:
+    """
+    Kelly fraccionado con fracción DINÁMICA basada en la volatilidad rolling.
+
+    Usa el Sharpe por pick de los últimos N picks liquidados para escalar
+    la fracción: rachas negativas o alta dispersión → fracción más conservadora.
+
+    Devuelve (kelly_stake, fraction_used).
+
+    Ejemplos:
+        Sharpe rolling ≥ 0.30  → fracción = base_frac   (plena confianza)
+        Sharpe rolling  0.15   → fracción = base_frac/2  (cauteloso)
+        Sharpe rolling ≤ 0.0   → fracción = 0.05         (mínimo de seguridad)
+    """
+    if not prob or not odds or odds <= 1:
+        return 0.0, base_frac
+    b = odds - 1.0
+    q = 1.0 - prob
+    full_kelly = (b * prob - q) / b if b > 0 else 0.0
+    if full_kelly <= 0:
+        return 0.0, base_frac
+
+    # ── Fracción dinámica por Sharpe rolling ──────────────────────────────────
+    window = settled_pnl[-n_window:] if len(settled_pnl) >= 3 else []
+    if len(window) >= 3:
+        import statistics as _st
+        mean_r = _st.mean(window)
+        std_r  = _st.stdev(window)
+        TARGET_SHARPE = 0.30   # Sharpe objetivo por pick para fracción plena
+        if std_r > 1e-9:
+            sharpe_rolling = mean_r / std_r
+            ratio = max(0.0, sharpe_rolling) / TARGET_SHARPE
+        else:
+            ratio = 1.0   # sin dispersión → historial perfecto
+        dyn_frac = base_frac * min(1.0, ratio)
+        dyn_frac = max(0.05, dyn_frac)   # mínimo 5% del full Kelly
+    else:
+        dyn_frac = base_frac             # sin historial → fracción base
+
+    stake = round(max(0.0, min(full_kelly * dyn_frac, cap)), 4)
+    return stake, round(dyn_frac, 4)
+
+
 def compute_reliability(
     edge: Optional[float],
     model_prob: Optional[float],
@@ -555,6 +605,9 @@ class Analyzer:
         force_retrain:   bool  = False,
         progress_cb=None,
         injury_api_key:  str   = "",
+        settled_pnl:     list  = None,
+        risk_multiplier: float = 1.0,
+        prob_calibrator: object = None,
     ) -> pd.DataFrame:
 
         def _cb(msg: str) -> None:
@@ -887,6 +940,12 @@ class Analyzer:
                         model_prob = {"1": p_home, "X": p_draw, "2": p_away}[best]
                         fair_prob  = {"1": fh, "X": fd, "2": fa}[best]
                         opening_fair = fair_prob
+                        # Corrección de calibración (si hay calibrador ajustado):
+                        # ajusta la prob. del pick elegido y recalcula edge/EV para
+                        # mantener coherencia (no toca el resto del simplex 1X2).
+                        if prob_calibrator is not None and getattr(prob_calibrator, "is_fitted", False):
+                            model_prob = prob_calibrator.transform(model_prob)
+                            edge = model_prob - fair_prob
                         ev = model_prob * odds - 1.0
 
                         # Pinnacle edge (si disponible: la métrica más fiable)
@@ -921,6 +980,9 @@ class Analyzer:
                         model_prob   = p_over
                         fair_prob    = ofa
                         opening_fair = fair_prob
+                        if prob_calibrator is not None and getattr(prob_calibrator, "is_fitted", False):
+                            model_prob = prob_calibrator.transform(model_prob)
+                            edge = model_prob - fair_prob
                         ev           = model_prob * odds - 1.0
 
                         if pd.notna(r.get("B365C>2.5")) and pd.notna(r.get("B365C<2.5")):
@@ -949,8 +1011,14 @@ class Analyzer:
                     roi_std=bt.get("roi_std", 0.0),
                 )
                 risk_light, reason = assess_risk(edge, reliability, passes_filters, market)
-                no_bet       = "SI" if risk_light == "ROJO" else "NO"
-                bankroll_pct = 0.0 if no_bet == "SI" else fractional_kelly(model_prob, odds) * 100
+                no_bet = "SI" if risk_light == "ROJO" else "NO"
+                _spnl  = settled_pnl if settled_pnl is not None else []
+                if no_bet == "SI":
+                    bankroll_pct, _kelly_frac = 0.0, KELLY_FRACTION
+                else:
+                    _kelly_stake, _kelly_frac = dynamic_kelly_fraction(model_prob, odds, _spnl)
+                    # Circuit breaker: escala (REDUCED) o anula (PAUSED) el stake
+                    bankroll_pct = _kelly_stake * 100 * risk_multiplier
 
                 rows.append({
                     "date":            r.get("date"),
@@ -999,7 +1067,8 @@ class Analyzer:
                     "reliability_score": reliability,
                     "risk_light":      risk_light,
                     "no_bet":          no_bet,
-                    "bankroll_pct":    round(bankroll_pct, 2),
+                    "bankroll_pct":        round(bankroll_pct, 2),
+                    "kelly_fraction_used": round(_kelly_frac, 4),
                     "pinnacle_edge":    round(pinnacle_edge, 4) if pinnacle_edge is not None else None,
                     "sharp_ref":        sharp_ref,
                     # Datos de lesiones (API-Football)

@@ -24,6 +24,7 @@ class SettingsView(ctk.CTkScrollableFrame):
         self._build()
 
     def _build(self):
+        self._build_theme_picker()
         self._build_odds_api()
         self._build_line_monitor()
         self._build_bankroll()
@@ -33,6 +34,89 @@ class SettingsView(ctk.CTkScrollableFrame):
         self._build_telegram()
         self._build_combo_settings()
         self._build_info()
+
+    def _build_theme_picker(self):
+        from ...core.themes import THEMES, theme_names
+
+        card = make_card(self, "🎨  Tema de color")
+        card.pack(fill="x", pady=(0, 10))
+
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=12, pady=(0, 14))
+
+        ctk.CTkLabel(
+            body,
+            text="Elige el esquema de color de la app. El cambio es instantáneo.",
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Fila de swatches
+        swatches_row = ctk.CTkFrame(body, fg_color="transparent")
+        swatches_row.pack(fill="x")
+
+        saved = self.app.storage.get_setting("theme", "Navy")
+        self._theme_swatch_btns: dict[str, ctk.CTkButton] = {}
+
+        for col, name in enumerate(theme_names()):
+            t = THEMES[name]
+            is_active = (name == saved)
+
+            col_frame = ctk.CTkFrame(swatches_row, fg_color="transparent")
+            col_frame.grid(row=0, column=col, padx=6)
+
+            # Círculo de color (botón cuadrado redondeado)
+            swatch_btn = ctk.CTkButton(
+                col_frame,
+                text="✓" if is_active else "",
+                width=44, height=44,
+                corner_radius=22,
+                fg_color=t["swatch"],
+                hover_color=t["accent"],
+                text_color="#ffffff",
+                font=ctk.CTkFont(size=16, weight="bold"),
+                command=lambda n=name: self._select_theme(n),
+            )
+            swatch_btn.pack()
+
+            # Nombre debajo del swatch
+            ctk.CTkLabel(
+                col_frame,
+                text=t["label"],
+                text_color=TEXT if is_active else MUTED,
+                font=ctk.CTkFont(size=9, weight="bold" if is_active else "normal"),
+            ).pack(pady=(4, 0))
+
+            self._theme_swatch_btns[name] = swatch_btn
+
+        # Nota
+        self._theme_note = ctk.CTkLabel(
+            body,
+            text="Los paneles de contenido mostrarán el tema completo al refrescarse.",
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+        )
+        self._theme_note.pack(anchor="w", pady=(10, 0))
+
+    def _select_theme(self, name: str) -> None:
+        """Aplica el tema seleccionado y actualiza los swatches."""
+        from ...core.themes import THEMES
+
+        # Actualizar apariencia de swatches
+        for n, btn in self._theme_swatch_btns.items():
+            is_active = (n == name)
+            btn.configure(text="✓" if is_active else "")
+
+        # Aplicar tema a la app
+        self.app.apply_theme(name, save=True)
+
+        # Feedback visual
+        self._theme_note.configure(
+            text=f"✅  Tema '{name}' aplicado.",
+            text_color=ACCENT,
+        )
+        self.after(2500, lambda: self._theme_note.configure(
+            text="Los paneles de contenido mostrarán el tema completo al refrescarse.",
+            text_color=MUTED,
+        ))
 
     def _build_odds_api(self):
         card = make_card(self, "⚡ The Odds API — Cuotas en tiempo real")
@@ -594,6 +678,93 @@ class SettingsView(ctk.CTkScrollableFrame):
         self._bot_log.configure(state="disabled")
         self._bot_log_lines: list[str] = []
 
+        # ── Auditoría automática ──────────────────────────────────────────────
+        ctk.CTkFrame(tb, fg_color="#1a3d22", height=1).pack(fill="x", pady=(12, 10))
+        ctk.CTkLabel(
+            tb, text="🔍  Auditoría automática",
+            text_color=TEXT, font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(
+            tb,
+            text=(
+                "Liquida picks pendientes, recalcula Sharpe/ROI/Drawdown y alerta\n"
+                "si detecta rachas negativas, drawdown alto o win rate bajo."
+            ),
+            text_color=MUTED, font=ctk.CTkFont(size=11), justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        audit_row = ctk.CTkFrame(tb, fg_color="transparent")
+        audit_row.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(audit_row, text="Intervalo:", text_color=MUTED,
+                     font=ctk.CTkFont(size=11)).pack(side="left")
+
+        _AUDIT_OPTIONS = {
+            "Desactivada":  "0",
+            "Cada 15 min":  "15",
+            "Cada 30 min":  "30",   # ← default
+            "Cada hora":    "60",
+            "Cada 6 horas": "360",
+        }
+        _AUDIT_REVERSE = {v: k for k, v in _AUDIT_OPTIONS.items()}
+        saved_interval = self.app.storage.get_setting("audit_interval_min", "30")
+        self._audit_var = ctk.StringVar(
+            value=_AUDIT_REVERSE.get(saved_interval, "Cada 30 min"))
+
+        def _on_audit_interval_change(choice: str) -> None:
+            mins = _AUDIT_OPTIONS.get(choice, "30")
+            self.app.storage.set_setting("audit_interval_min", mins)
+            # Reiniciar el loop con el nuevo intervalo
+            try:
+                if int(mins) > 0:
+                    self.app._schedule_next_audit(int(mins))
+                elif self.app._audit_after_id:
+                    self.app.after_cancel(self.app._audit_after_id)
+                    self.app._audit_after_id = None
+            except Exception:
+                pass
+
+        ctk.CTkOptionMenu(
+            audit_row,
+            values=list(_AUDIT_OPTIONS.keys()),
+            variable=self._audit_var,
+            command=_on_audit_interval_change,
+            fg_color="#0a2210", button_color=ACCENT,
+            width=140,
+        ).pack(side="left", padx=8)
+
+        # Notificar por Telegram
+        import tkinter as _tk
+        self._audit_tg_var = _tk.BooleanVar(
+            value=self.app.storage.get_setting("audit_telegram", "0") == "1")
+
+        def _toggle_audit_tg():
+            self.app.storage.set_setting(
+                "audit_telegram", "1" if self._audit_tg_var.get() else "0")
+
+        ctk.CTkCheckBox(
+            tb,
+            text="Enviar alertas de auditoría por Telegram",
+            variable=self._audit_tg_var,
+            command=_toggle_audit_tg,
+            text_color=TEXT, fg_color=ACCENT,
+        ).pack(anchor="w", pady=(4, 4))
+
+        # Botón de auditoría manual
+        audit_btn_row = ctk.CTkFrame(tb, fg_color="transparent")
+        audit_btn_row.pack(fill="x", pady=(4, 0))
+        ctk.CTkButton(
+            audit_btn_row,
+            text="🔍  Auditar ahora",
+            command=lambda: self.app._auto_audit_tick(),
+            fg_color="#0a2210", hover_color="#14532d",
+            width=140,
+        ).pack(side="left")
+
+        self._audit_status_lbl = ctk.CTkLabel(
+            audit_btn_row, text="",
+            text_color=MUTED, font=ctk.CTkFont(size=10))
+        self._audit_status_lbl.pack(side="left", padx=10)
+
     def _build_combo_settings(self):
         card = make_card(self, "Combo Builder — Configuración")
         card.pack(fill="x", pady=(0, 10))
@@ -608,120 +779,41 @@ class SettingsView(ctk.CTkScrollableFrame):
         ).pack(fill="x")
 
     def _build_info(self):
-        card = make_card(self, "Información del sistema")
+        card = make_card(self, "Información")
         card.pack(fill="x")
 
-        info = make_textbox(card, height=520)
+        info = make_textbox(card, height=340)
         info.pack(fill="x", padx=12, pady=(0, 12))
         info.insert(
             "end",
             "AlphaBet  ·  v15.0\n"
-            "© 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.\n"
-            "Software de uso privado. Prohibida su distribución sin autorización expresa.\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "\n"
-            "▌ MODELO ML — 116 FEATURES\n"
-            "  • 3 modelos: HistGradientBoosting (1X2) · GradientBoosting (Over 2.5) · RandomForest (goles)\n"
-            "  • Calibración isotónica (CalibratedClassifierCV cv=3) — probabilidades reales\n"
-            "  • Ensemble 60/40 ML + Dixon-Coles Poisson con corrección rho\n"
-            "  • Walk-forward OOS: 5 ventanas deslizantes sin data-leakage\n"
-            "  • Modelos por liga (si ≥ 300 partidos) con fallback al modelo global\n"
-            "  • SHAP values por predicción — tooltip con top-5 features en Trading Desk\n"
-            "  • Drift detection: alerta si EV actual desvía > 2σ del ROI del backtest\n"
-            "  • Brier Score OOS registrado por modelo y liga\n"
+            "«Donde el análisis se convierte en ventaja.»\n"
             "\n"
-            "▌ FEATURES INCLUIDAS\n"
-            "  • Estadísticas de equipo: forma reciente, rachas win/loss/unbeaten\n"
-            "  • Club ELO (clubelo.com) — diferencia ELO, probabilidad implícita\n"
-            "  • xG histórico (Understat) — temporada anterior home/away como feature\n"
-            "  • Días de descanso y ventaja de recuperación\n"
-            "  • Tendencias del árbitro (amarillas/rojas pg, % victoria local, % over)\n"
-            "  • Consenso multi-casa: normalización no-vig sobre hasta 8 bookmakers\n"
-            "  • Weather (Open-Meteo, gratis): lluvia, viento, temperatura — influye en over/under\n"
-            "  • Alineaciones (ESPN, gratis): bajas de titulares como penalización de prob\n"
+            "No vendemos certezas — en las apuestas no existen.\n"
+            "Ofrecemos algo más valioso: método, rigor y honestidad.\n"
             "\n"
-            "▌ GESTIÓN DE BANKROLL\n"
-            "  • Kelly fraccionado (fracción 0.20, cap 1.5% por pick)\n"
-            "  • CLV tracking: opening odds vs closing odds — registrado al liquidar cada pick\n"
-            "  • Monte Carlo simulator: 5 000 simulaciones, bandas percentil 10/25/50/75/90\n"
-            "    P(ruina), P(drawdown > 20%), P(drawdown > 50%), ROI mediano esperado\n"
-            "  • Pinnacle como referencia sharp para fair odds\n"
+            "Cada pick nace de modelos que aprenden de miles de partidos,\n"
+            "se calibran contra resultados reales y se miden frente al\n"
+            "mercado antes de llegar a ti. Detrás de cada número hay una\n"
+            "razón — y aquí siempre la verás: sin humo, sin promesas\n"
+            "vacías, sin atajos.\n"
             "\n"
-            "▌ TRADING DESK (📊)\n"
-            "  • Tabla de picks con edge, EV, fiabilidad 0-99, semáforo VERDE/AMARILLO/ROJO\n"
-            "  • Filtros: edge mínimo, mercado, liga, cuota\n"
-            "  • Tooltip SHAP por fila — top-5 features que empujaron la predicción\n"
-            "  • Banner de drift si el modelo underperforma respecto al backtest\n"
-            "  • Backtest OOS por liga con ROI ± σ y nº de apuestas\n"
+            "No se trata de acertar una vez, sino de decidir mejor una y\n"
+            "otra vez, con la disciplina de quien sabe cuidar su banca.\n"
             "\n"
-            "▌ COMBINADAS IA (⚡)\n"
-            "  • Modo Inteligente (EV): triple filtro ML + Double Chance + Consenso\n"
-            "  • Modo Seguras (🛡): solo DC + Goles, optimiza tasa de acierto\n"
-            "  • Apuesta RECOMENDADA: cuota 1.40-2.20, máximo 2 patas, análisis profundo\n"
-            "  • Hasta 4 patas con correlación controlada\n"
+            "Hecho con obsesión por el detalle, para quien se toma esto\n"
+            "en serio.\n"
             "\n"
-            "▌ QUINIELA IA (⚽)\n"
-            "  • Scraper de jornada oficial SELAE (resultados-futbol.com)\n"
-            "  • Jerarquía de predicción: ML → The Odds API → Club ELO → ELO nacional\n"
-            "  • Selector de dobles (0-7) con asignación óptima por incertidumbre\n"
-            "  • Corrección de sesgo de empate (+5%)\n"
-            "  • Exportación a .txt con picks + combinaciones + coste\n"
+            "──────────────────────────────────────────────\n"
+            "Uso exclusivamente informativo. No constituye asesoramiento\n"
+            "financiero ni garantiza resultados. Juega con responsabilidad.\n"
             "\n"
-            "▌ MONITOR DE LÍNEAS (🔔)\n"
-            "  • Steam detection: alerta si la prob implícita cae ≥ 2.5% en < 1 polling\n"
-            "  • Alertas proactivas: push Telegram cuando aparece pick nuevo con edge > umbral\n"
-            "  • Polling configurable: 2-15 minutos\n"
-            "  • Historial en SQLite\n"
-            "\n"
-            "▌ ALINEACIONES PRE-PARTIDO\n"
-            "  • Fuente: ESPN API pública — sin registro, sin API key\n"
-            "  • Cobertura: Premier League, LaLiga, Serie A, Bundesliga, Ligue 1\n"
-            "  • Disponibles ~1h antes del partido\n"
-            "  • Panel en Alertas con titular locales y visitantes + formación\n"
-            "\n"
-            "▌ AJUSTE DE BAJAS (panel manual)\n"
-            "  • Factores de impacto empíricos por rol y posición\n"
-            "  • Re-normalización de probabilidades al vuelo\n"
-            "\n"
-            "▌ RESULTADOS Y CLV (📊)\n"
-            "  • Results Tracker: picks guardados con estado PENDING/WIN/LOSS/VOID\n"
-            "  • CLV automático: introduce closing odds al liquidar → CLV calculado\n"
-            "  • KPIs: ROI real, strike rate, CLV medio, % picks CLV positivo\n"
-            "  • Columna CLV en tabla con semáforo verde/rojo\n"
-            "\n"
-            "▌ MANUAL SLIP / PORTFOLIO (🎯 / 📈)\n"
-            "  • Bet builder multi-leg estilo casa de apuestas\n"
-            "  • Cuota total en tiempo real, retorno estimado\n"
-            "  • Monte Carlo bankroll simulator integrado\n"
-            "  • Historial de simulaciones en SQLite\n"
-            "\n"
-            "▌ TELEGRAM BOT\n"
-            "  • /picks       — picks VERDE activos con edge, EV y fiabilidad\n"
-            "  • /combinadas  — hasta 3 combinadas con prob ML por leg + razonamiento\n"
-            "  • /quiniela    — jornada oficial con distribución y resumen de fuentes\n"
-            "  • /alertas on [N%] — activa alertas proactivas de valor con umbral\n"
-            "  • /estado      — ROI por liga, picks activos, último análisis\n"
-            "  • /refresh     — recarga datos desde la app\n"
-            "  • /debug       — estado interno del caché\n"
-            "  • Alertas automáticas: steam moves + alineaciones confirmadas\n"
-            "\n"
-            "▌ DATOS Y FUENTES\n"
-            "  • football-data.co.uk — histórico de partidos y cuotas (gratuito)\n"
-            "  • clubelo.com         — Club ELO para 5 ligas (gratuito)\n"
-            "  • understat.com       — xG por temporada (gratuito)\n"
-            "  • Open-Meteo          — meteorología (gratuito, sin API key)\n"
-            "  • ESPN API pública    — alineaciones (gratuito, sin API key)\n"
-            "  • The Odds API        — cuotas en tiempo real (plan de pago)\n"
-            "  • SELAE               — jornada oficial Quiniela (scraper)\n"
-            "\n"
-            "▌ STACK TÉCNICO\n"
-            "  • Python 3.14 · scikit-learn · pandas · numpy · joblib · shap · matplotlib\n"
-            "  • UI: customtkinter + tkinter (desktop Windows, glassmorphism)\n"
-            "  • DB: SQLite (settings, picks, combinadas, historial)\n"
-            "  • Python path: PYTHONPATH=C:\\Claude\\football_analyzer\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "© 2026 Francesco Giuseppe Manolache.\n"
+            "Todos los derechos reservados · Software de uso privado.\n"
         )
         info.configure(state="disabled")
+
 
     # ── Claude / Anthropic helpers ─────────────────────────────────────────────
 

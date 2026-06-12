@@ -1,105 +1,69 @@
 # -*- mode: python ; coding: utf-8 -*-
-# football_analyzer.spec
+# football_analyzer.spec — empaquetado de AlphaBet (one-folder)
 #
 # Uso:
-#   pip install pyinstaller
 #   pyinstaller football_analyzer.spec
-#
-# El ejecutable queda en:  dist/FootballAnalyzer/FootballAnalyzer.exe
+# Salida:
+#   dist/AlphaBet/AlphaBet.exe
 
 import sys
 from pathlib import Path
-import customtkinter
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-# Ruta raíz del proyecto
-ROOT = Path(SPECPATH)
+ROOT   = Path(SPECPATH)          # D:\football_analyzer  (el paquete football_analyzer)
+PARENT = ROOT.parent             # D:\  → para que 'football_analyzer' sea importable
 
-# Assets de CustomTkinter (necesarios para que los temas y fuentes funcionen)
-CTK_PATH = Path(customtkinter.__file__).parent
+# Que collect_submodules('football_analyzer') encuentre el paquete
+sys.path.insert(0, str(PARENT))
 
-block_cipher = None
+# ── Datos a empaquetar ──────────────────────────────────────────────────────────
+datas  = collect_data_files('customtkinter')                 # temas/fuentes de CTk
+datas += [(str(ROOT / 'assets'), 'football_analyzer/assets')]  # logo + icono + svg
+
+# ── Imports que PyInstaller podría no detectar solo ─────────────────────────────
+hiddenimports  = collect_submodules('football_analyzer')     # todos los submódulos
+hiddenimports += ['sklearn', 'scipy', 'scipy.special.cython_special',
+                  'pandas', 'numpy', 'PIL', 'requests']
 
 a = Analysis(
     ['main.py'],
-    pathex=[str(ROOT)],
+    pathex=[str(PARENT), str(ROOT)],
     binaries=[],
-    datas=[
-        # CustomTkinter assets (temas, fuentes, imágenes)
-        (str(CTK_PATH / 'assets'), 'customtkinter/assets'),
-    ],
-    hiddenimports=[
-        # scikit-learn internals que PyInstaller no detecta solo
-        'sklearn.utils._cython_blas',
-        'sklearn.neighbors.typedefs',
-        'sklearn.neighbors.quad_tree',
-        'sklearn.tree._utils',
-        'sklearn.utils._weight_vector',
-        'sklearn.ensemble._gb_losses',
-        'sklearn.utils.sparsetools',
-        # joblib
-        'joblib.externals.loky.backend.managers',
-        # pandas / numpy
-        'pandas._libs.tslibs.np_datetime',
-        'pandas._libs.tslibs.nattype',
-        'pandas._libs.tslibs.timezones',
-        'numpy.core._dtype_ctypes',
-        # tkinter
-        'tkinter',
-        'tkinter.ttk',
-        'tkinter.messagebox',
-        'tkinter.filedialog',
-        # app modules
-        'football_analyzer.core.config',
-        'football_analyzer.core.data',
-        'football_analyzer.core.features',
-        'football_analyzer.core.model',
-        'football_analyzer.core.analyzer',
-        'football_analyzer.core.storage',
-        'football_analyzer.ui.widgets',
-        'football_analyzer.ui.views.analysis',
-        'football_analyzer.ui.views.portfolio',
-        'football_analyzer.ui.views.settings',
-    ],
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        'matplotlib', 'IPython', 'jupyter',
-        'pytest', 'setuptools',
-    ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
+    excludes=['matplotlib', 'shap', 'pytest', 'IPython', 'jupyter', 'notebook'],
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name='FootballAnalyzer',
+    name='AlphaBet',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,           # Sin consola negra al arrancar
+    upx=False,                 # sin UPX: build más fiable, menos falsos positivos AV
+    console=False,             # app de ventana, sin consola negra
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,               # Pon aquí tu .ico si tienes: icon='icon.ico'
+    icon=str(ROOT / 'assets' / 'app_icon.ico'),
 )
 
 coll = COLLECT(
     exe,
     a.binaries,
-    a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
-    name='FootballAnalyzer',
+    name='AlphaBet',
 )

@@ -89,7 +89,7 @@ class PerformanceView(ctk.CTkScrollableFrame):
         for i in range(5):
             kpi_row.columnconfigure(i, weight=1)
 
-        self._kpi_cards: dict[str, tuple[tk.StringVar, tk.StringVar]] = {}
+        self._kpi_cards: dict = {}
         kpi_defs = [
             ("picks",    "Picks rastreados"),
             ("win_rate", "Win Rate"),
@@ -105,11 +105,37 @@ class PerformanceView(ctk.CTkScrollableFrame):
                          font=ctk.CTkFont(size=10)).pack(pady=(8, 0))
             val_var  = tk.StringVar(value="—")
             sub_var  = tk.StringVar(value="")
-            ctk.CTkLabel(card, textvariable=val_var, text_color=ACCENT,
-                         font=ctk.CTkFont(size=18, weight="bold")).pack(pady=2)
+            val_lbl  = ctk.CTkLabel(card, textvariable=val_var, text_color=ACCENT,
+                                    font=ctk.CTkFont(size=18, weight="bold"))
+            val_lbl.pack(pady=2)
             ctk.CTkLabel(card, textvariable=sub_var, text_color=MUTED,
                          font=ctk.CTkFont(size=10)).pack(pady=(0, 8))
-            self._kpi_cards[key] = (val_var, sub_var)
+            self._kpi_cards[key] = (val_var, sub_var, val_lbl)
+
+        # ── Tarjetas KPI — fila 2 (Sharpe, Max Drawdown, Racha) ──────────────
+        kpi_row2 = ctk.CTkFrame(self, fg_color="transparent")
+        kpi_row2.pack(fill="x", padx=16, pady=(0, 12))
+        for i in range(3):
+            kpi_row2.columnconfigure(i, weight=1)
+
+        for col, (key, label) in enumerate([
+            ("sharpe",  "Sharpe Ratio"),
+            ("max_dd",  "Max Drawdown"),
+            ("racha",   "Racha actual"),
+        ]):
+            card = ctk.CTkFrame(kpi_row2, fg_color=_CARD_BG, corner_radius=10,
+                                border_color=BORDER, border_width=1)
+            card.grid(row=0, column=col, padx=5, sticky="ew")
+            ctk.CTkLabel(card, text=label, text_color=MUTED,
+                         font=ctk.CTkFont(size=10)).pack(pady=(8, 0))
+            val_var = tk.StringVar(value="—")
+            sub_var = tk.StringVar(value="")
+            val_lbl = ctk.CTkLabel(card, textvariable=val_var, text_color=ACCENT,
+                                   font=ctk.CTkFont(size=18, weight="bold"))
+            val_lbl.pack(pady=2)
+            ctk.CTkLabel(card, textvariable=sub_var, text_color=MUTED,
+                         font=ctk.CTkFont(size=10)).pack(pady=(0, 8))
+            self._kpi_cards[key] = (val_var, sub_var, val_lbl)
 
         # ── Equity curve ──────────────────────────────────────────────────────
         eq_frame = ctk.CTkFrame(self, fg_color=_CARD_BG, corner_radius=12,
@@ -122,6 +148,55 @@ class PerformanceView(ctk.CTkScrollableFrame):
                                     highlightthickness=0, bd=0)
         self._eq_canvas.pack(fill="x", padx=10, pady=(0, 10))
         self._eq_canvas.bind("<Configure>", lambda e: self._draw_equity_curve())
+
+        # ── Calibración del modelo (reliability diagram) ──────────────────────
+        cal_frame = ctk.CTkFrame(self, fg_color=_CARD_BG, corner_radius=12,
+                                 border_color=BORDER, border_width=1)
+        cal_frame.pack(fill="x", padx=16, pady=(0, 12))
+        cal_header = ctk.CTkFrame(cal_frame, fg_color="transparent")
+        cal_header.pack(fill="x", padx=14, pady=(10, 4))
+        ctk.CTkLabel(cal_header, text="Calibración del modelo",
+                     font=ctk.CTkFont(size=13, weight="bold"),
+                     text_color=TEXT).pack(side="left")
+        self._cal_info = tk.StringVar(value="")
+        ctk.CTkLabel(cal_header, textvariable=self._cal_info, text_color=MUTED,
+                     font=ctk.CTkFont(size=11)).pack(side="right")
+        self._cal_canvas = tk.Canvas(cal_frame, height=240, bg=_CANVAS_BG,
+                                     highlightthickness=0, bd=0)
+        self._cal_canvas.pack(fill="x", padx=10, pady=(0, 10))
+        self._cal_canvas.bind("<Configure>", lambda e: self._draw_calibration())
+
+        # ── ARB / Valor extremo scanner ───────────────────────────────────────
+        arb_frame = ctk.CTkFrame(self, fg_color=_CARD_BG, corner_radius=12,
+                                 border_color=BORDER, border_width=1)
+        arb_frame.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkLabel(arb_frame, text="🎯  Scanner ARB / Valor Extremo",
+                     font=ctk.CTkFont(size=13, weight="bold"),
+                     text_color=TEXT).pack(anchor="w", padx=14, pady=(10, 4))
+        self._arb_tree = ttk.Treeview(
+            arb_frame,
+            columns=("match", "pick", "our_odds", "mkt_odds", "edge", "type"),
+            show="headings",
+            style="Perf.Treeview",
+            height=4,
+        )
+        for col, label, w in [
+            ("match",    "Partido",      210),
+            ("pick",     "Pick",          55),
+            ("our_odds", "Cuota justa",   90),
+            ("mkt_odds", "Cuota mkt.",    90),
+            ("edge",     "Edge",          70),
+            ("type",     "Señal",        115),
+        ]:
+            self._arb_tree.heading(col, text=label, anchor="center")
+            self._arb_tree.column(col, width=w, anchor="center")
+        self._arb_tree.tag_configure("HARD_ARB", foreground="#22c55e")
+        self._arb_tree.tag_configure("SOFT_ARB", foreground="#fbbf24")
+        self._arb_tree.pack(fill="x", padx=10, pady=(0, 4))
+        self._arb_lbl = ctk.CTkLabel(
+            arb_frame, text="Ejecuta Run Analysis para ver señales.",
+            text_color=MUTED, font=ctk.CTkFont(size=10))
+        self._arb_lbl.pack(anchor="w", padx=14, pady=(0, 8))
 
         # ── Desglose por liga ─────────────────────────────────────────────────
         league_frame = ctk.CTkFrame(self, fg_color=_CARD_BG, corner_radius=12,
@@ -218,6 +293,8 @@ class PerformanceView(ctk.CTkScrollableFrame):
 
         self._update_kpis()
         self._draw_equity_curve()
+        self._draw_calibration()
+        self._update_arb_scanner()
         self._update_league_table()
         self._update_hist_table()
         self._update_diagnostics()
@@ -245,26 +322,130 @@ class PerformanceView(ctk.CTkScrollableFrame):
         avg_edge = sum(edge_vals) / len(edge_vals) if edge_vals else None
 
         def _set(key, val_str, sub_str="", color=ACCENT):
-            v, s = self._kpi_cards[key]
-            v.set(val_str)
-            s.set(sub_str)
+            entry = self._kpi_cards.get(key)
+            if not entry:
+                return
+            entry[0].set(val_str)
+            entry[1].set(sub_str)
+            if len(entry) > 2:
+                entry[2].configure(text_color=color)
 
         _set("picks",    str(total),
              f"{wins}W / {losses}L / {total - settled}P")
         _set("win_rate", f"{win_rate*100:.1f}%" if win_rate is not None else "—",
              f"de {settled} liquidados")
+        roi_col = _color_roi(roi) if roi is not None else MUTED
         _set("roi",      _pct(roi) if roi is not None else "—",
-             "calculado sobre stakes")
+             "calculado sobre stakes", roi_col)
         _set("avg_clv",  _pct(avg_clv) if avg_clv is not None else "—",
              f"n={len(clv_vals)}" if clv_vals else "sin datos")
         _set("avg_edge", _pct(avg_edge) if avg_edge is not None else "—",
              f"n={len(edge_vals)}" if edge_vals else "")
 
-        # Actualizar color ROI
-        if roi is not None:
-            self._kpi_cards["roi"][0].set(_pct(roi))
+        # ── KPIs avanzados: Sharpe, Max Drawdown, Racha ───────────────────────
+        stats = self._compute_advanced_stats()
+        self._last_adv_stats = stats   # caché para equity curve
+
+        sharpe = stats.get("sharpe")
+        max_dd = stats.get("max_drawdown", 0.0)
+        racha  = stats.get("racha", 0)
+        rdir   = stats.get("racha_dir", "+")
+
+        if sharpe is not None:
+            sc = _GREEN if sharpe >= 2.0 else (_YELLOW if sharpe >= 1.0 else _RED)
+            _set("sharpe", f"{sharpe:.2f}", "≥1 bueno  |  ≥2 excelente", sc)
+        else:
+            _set("sharpe", "—", "sin suficientes datos", MUTED)
+
+        if max_dd > 0:
+            _set("max_dd", f"-{max_dd:.1f}€", "pico → valle máximo en equity", _RED)
+        else:
+            _set("max_dd", "—", "sin datos aún", MUTED)
+
+        if racha > 0:
+            racha_col = _GREEN if rdir == "+" else _RED
+            racha_sub = "wins seguidas" if rdir == "+" else "pérdidas seguidas"
+            _set("racha", f"{rdir}{racha}", racha_sub, racha_col)
+        else:
+            _set("racha", "—", "", MUTED)
 
     # ── Curva de equity ───────────────────────────────────────────────────────
+
+    def _draw_calibration(self) -> None:
+        """Reliability diagram: probabilidad predicha (x) vs frecuencia real (y).
+        La diagonal es la calibración perfecta; cada punto es un intervalo de
+        probabilidad, con radio proporcional al nº de picks."""
+        c = self._cal_canvas
+        c.delete("all")
+        W = c.winfo_width()
+        H = c.winfo_height() or 240
+        if W < 50:
+            return
+
+        from ...core.calibration import compute_calibration, calibration_grade
+        cal   = compute_calibration(self._settled, n_bins=10)
+        bins  = cal["bins"]
+        brier = cal["brier"]
+
+        if brier is None or not bins:
+            self._cal_info.set("")
+            c.create_text(W // 2, H // 2,
+                          text="Sin picks liquidados para calibrar",
+                          fill=MUTED, font=("Segoe UI", 11))
+            return
+
+        from ...core.prob_calibrator import MIN_SAMPLES
+        if cal["n"] >= MIN_SAMPLES:
+            corr = "· corrección ON"
+        else:
+            corr = f"· corrección en {MIN_SAMPLES - cal['n']} picks"
+        self._cal_info.set(
+            f"Brier {brier:.3f} · {calibration_grade(brier)} · n={cal['n']} {corr}")
+
+        PAD_L, PAD_R, PAD_T, PAD_B = 44, 16, 12, 26
+        size = min(W - PAD_L - PAD_R, H - PAD_T - PAD_B)
+        if size < 20:
+            return
+        x0, y0 = PAD_L, PAD_T
+        x1, y1 = x0 + size, y0 + size
+
+        def px(v: float) -> float:
+            return x0 + v * size
+
+        def py(v: float) -> float:
+            return y1 - v * size      # eje y invertido (0 abajo, 1 arriba)
+
+        # Grid + etiquetas de eje
+        for g in (0.0, 0.25, 0.5, 0.75, 1.0):
+            c.create_line(px(g), y0, px(g), y1, fill=_GRID_CLR)
+            c.create_line(x0, py(g), x1, py(g), fill=_GRID_CLR)
+            c.create_text(px(g), y1 + 11, text=f"{g:.2f}",
+                          fill=MUTED, font=("Segoe UI", 7))
+            c.create_text(x0 - 16, py(g), text=f"{g:.2f}",
+                          fill=MUTED, font=("Segoe UI", 7))
+
+        # Diagonal de calibración perfecta
+        c.create_line(px(0), py(0), px(1), py(1), fill=_ZERO_CLR, dash=(4, 3))
+
+        # Curva de fiabilidad (une los bins) + puntos
+        max_count = max(b["count"] for b in bins)
+        pts: list[float] = []
+        for b in bins:
+            pts += [px(b["pred"]), py(b["obs"])]
+        if len(pts) >= 4:
+            c.create_line(*pts, fill=ACCENT, width=2, smooth=True)
+        for b in bins:
+            x, y = px(b["pred"]), py(b["obs"])
+            r = 3 + 5 * (b["count"] / max_count)
+            err = abs(b["pred"] - b["obs"])
+            col = _GREEN if err < 0.08 else (_YELLOW if err < 0.18 else _RED)
+            c.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="")
+
+        # Etiquetas de ejes
+        c.create_text((x0 + x1) // 2, y1 + 21, text="Probabilidad predicha",
+                      fill=MUTED, font=("Segoe UI", 8))
+        c.create_text(x0 - 32, (y0 + y1) // 2, text="Frecuencia real",
+                      fill=MUTED, font=("Segoe UI", 8), angle=90)
 
     def _draw_equity_curve(self) -> None:
         c = self._eq_canvas
@@ -326,6 +507,23 @@ class PerformanceView(ctk.CTkScrollableFrame):
         fill_coords = [PAD_L, y_zero] + coords + [W - PAD_R, y_zero]
         c.create_polygon(fill_coords, fill="#042030", outline="")
 
+        # Sombreado de max drawdown (pico → valle)
+        _ast = getattr(self, "_last_adv_stats", {})
+        _dpi = _ast.get("dd_peak_i")
+        _dti = _ast.get("dd_trough_i")
+        _mdd = _ast.get("max_drawdown", 0.0)
+        if _dpi is not None and _dti is not None and _dti > _dpi and _mdd > 0:
+            xp = PAD_L + int(chart_w * _dpi / (n - 1))
+            xt = PAD_L + int(chart_w * _dti / (n - 1))
+            c.create_rectangle(xp, PAD_T, xt, H - PAD_B, fill="#1c0505", outline="")
+            yp = PAD_T + int(chart_h * (pnl_max - cum_pnl[_dpi]) / pnl_range)
+            yt = PAD_T + int(chart_h * (pnl_max - cum_pnl[_dti]) / pnl_range)
+            c.create_line(xp, yp, xp, H - PAD_B, fill="#7f1d1d", dash=(3, 3), width=1)
+            c.create_line(xt, yt, xt, H - PAD_B, fill="#dc2626", dash=(3, 3), width=1)
+            c.create_text(xt + 5, yt + 10,
+                          text=f"MaxDD -{_mdd:.1f}€",
+                          fill="#f87171", font=("Segoe UI", 8, "bold"), anchor="w")
+
         # Línea principal de equity
         if len(coords) >= 4:
             final_pnl = cum_pnl[-1]
@@ -346,6 +544,139 @@ class PerformanceView(ctk.CTkScrollableFrame):
         c.create_text(PAD_L + chart_w // 2, H - 5,
                       text=f"Picks liquidados: {n}",
                       fill=MUTED, font=("Segoe UI", 9))
+
+    # ── Estadísticas avanzadas ────────────────────────────────────────────────
+
+    def _compute_advanced_stats(self) -> dict:
+        """Calcula Sharpe ratio, max drawdown y racha actual."""
+        import math
+        import statistics as _st
+
+        s = sorted(self._settled, key=lambda p: p.get("saved_at", "") or "")
+        if not s:
+            return {}
+
+        pnl_list = [float(p.get("pnl", 0.0) or 0.0) for p in s]
+
+        # Curva acumulada de P&L
+        cum, acc = [], 0.0
+        for v in pnl_list:
+            acc += v
+            cum.append(acc)
+
+        # Sharpe por pick: (media / std) × √n  — sin anualizar
+        sharpe = None
+        if len(pnl_list) >= 4:
+            mean_p = _st.mean(pnl_list)
+            std_p  = _st.stdev(pnl_list)
+            if std_p > 1e-9:
+                sharpe = (mean_p / std_p) * math.sqrt(len(pnl_list))
+
+        # Max drawdown: mayor caída pico → valle en la curva de equity
+        peak, max_dd = cum[0], 0.0
+        tmp_peak_i = dd_peak_i = dd_trough_i = 0
+        for i, v in enumerate(cum):
+            if v > peak:
+                peak = v
+                tmp_peak_i = i
+            dd = peak - v
+            if dd > max_dd:
+                max_dd = dd
+                dd_peak_i   = tmp_peak_i
+                dd_trough_i = i
+
+        # Racha actual (wins o losses consecutivas al final de la serie)
+        statuses = [p.get("status") for p in s]
+        last_st  = statuses[-1] if statuses else None
+        racha    = 0
+        for st in reversed(statuses):
+            if st == last_st:
+                racha += 1
+            else:
+                break
+
+        return {
+            "sharpe":       sharpe,
+            "max_drawdown": max_dd,
+            "dd_peak_i":    dd_peak_i,
+            "dd_trough_i":  dd_trough_i,
+            "racha":        racha,
+            "racha_dir":    "+" if last_st == "WIN" else "-",
+            "cum_pnl":      cum,
+            "n":            len(pnl_list),
+        }
+
+    # ── Scanner ARB / valor extremo ───────────────────────────────────────────
+
+    def _update_arb_scanner(self) -> None:
+        """Rellena el scanner con picks de edge extremo del análisis activo."""
+        for row in self._arb_tree.get_children():
+            self._arb_tree.delete(row)
+
+        # Leer el DataFrame del análisis más reciente
+        df = getattr(self.app, "filtered", None)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            df = getattr(self.app, "results", None)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            self._arb_lbl.configure(
+                text="Ejecuta Run Analysis para ver señales.")
+            return
+
+        signals = []
+        for _, row in df.iterrows():
+            edge      = float(row.get("edge") or 0.0)
+            mkt_odds  = float(row.get("odds") or 0.0)
+            mod_prob  = float(row.get("model_prob") or 0.0)
+            overr     = float(row.get("open_overround") or 1.08)
+            pick      = str(row.get("pick", ""))
+            match     = f"{row.get('home_team','?')} v {row.get('away_team','?')}"
+
+            if edge <= 0:
+                continue
+
+            our_fair = round(1.0 / mod_prob, 2) if mod_prob > 0 else None
+
+            if overr < 1.0:
+                sig_type, tag = "HARD ARB  🟢", "HARD_ARB"
+            elif edge >= 0.12:
+                sig_type, tag = "VALOR EXTREMO ⚡", "SOFT_ARB"
+            elif edge >= 0.08:
+                sig_type, tag = "VALOR ALTO", "SOFT_ARB"
+            else:
+                continue
+
+            signals.append({
+                "match": match, "pick": pick,
+                "our_odds": our_fair, "mkt_odds": round(mkt_odds, 2) if mkt_odds else None,
+                "edge": edge, "type": sig_type, "tag": tag,
+            })
+
+        if not signals:
+            n_total = len(df) if hasattr(df, "__len__") else "?"
+            self._arb_lbl.configure(
+                text=f"Sin señales de valor extremo (edge < 8%) en {n_total} picks analizados.")
+            return
+
+        signals.sort(key=lambda x: -x["edge"])
+        for sig in signals:
+            self._arb_tree.insert(
+                "", "end", tags=(sig["tag"],),
+                values=(
+                    sig["match"], sig["pick"],
+                    f"{sig['our_odds']:.2f}" if sig["our_odds"] else "—",
+                    f"{sig['mkt_odds']:.2f}" if sig["mkt_odds"] else "—",
+                    f"+{sig['edge']*100:.1f}%",
+                    sig["type"],
+                ),
+            )
+
+        n_hard = sum(1 for s in signals if s["tag"] == "HARD_ARB")
+        n_soft = len(signals) - n_hard
+        parts  = []
+        if n_hard: parts.append(f"{n_hard} hard ARB")
+        if n_soft: parts.append(f"{n_soft} valor extremo/alto")
+        self._arb_lbl.configure(
+            text=f"⚡  {len(signals)} señal(es): {' | '.join(parts)}")
 
     # ── Tabla por liga ────────────────────────────────────────────────────────
 

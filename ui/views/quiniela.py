@@ -78,13 +78,16 @@ def _pleno15_probs(
       p1 = P(2-3 goles totales)
       p2 = P(4-5 goles totales)
       pM = P(6+ goles totales)
+
+    Prior calibrado para LaLiga (Poisson μ≈2.75):
+      p0≈24%  p1≈46%  p2≈24%  pM≈6%
     """
     if p_h <= 0:
-        return 0.18, 0.45, 0.28, 0.09   # prior europeo sin datos
+        return 0.24, 0.46, 0.24, 0.06   # prior LaLiga Poisson(2.75)
 
     try:
         from ...core.poisson import score_matrix
-        lh, la = _lambdas_from_probs(p_h, p_a)
+        lh, la = _lambdas_from_probs(p_h, p_a, p_d)   # usa p_d para calibrar λ total
         mat    = score_matrix(lh, la)
 
         b = [0.0, 0.0, 0.0, 0.0]
@@ -106,7 +109,7 @@ def _pleno15_probs(
     # Fallback: Poisson simple con lambda total
     try:
         import math
-        lh, la = _lambdas_from_probs(p_h, p_a)
+        lh, la = _lambdas_from_probs(p_h, p_a, p_d)
         mu     = lh + la
 
         def _pcdf(k: int) -> float:
@@ -125,7 +128,7 @@ def _pleno15_probs(
     except Exception:
         pass
 
-    return 0.18, 0.45, 0.28, 0.09
+    return 0.24, 0.46, 0.24, 0.06
 
 
 def _pleno15_pick_ai(p_h: float, p_d: float, p_a: float) -> str:
@@ -207,8 +210,22 @@ def _prob_acertar(pick: str, p_h: float, p_d: float, p_a: float) -> float:
     return sum(prob_map.get(r, 0) for r in DESCOMPOSICION.get(pick, []))
 
 
-def _lambdas_from_probs(p_home: float, p_away: float) -> tuple[float, float]:
-    """Estima los parámetros lambda del Poisson a partir de probabilidades 1X2."""
+def _lambdas_from_probs(
+    p_home: float,
+    p_away: float,
+    p_draw: float = 0.27,
+) -> tuple[float, float]:
+    """
+    Estima λ_home y λ_away del modelo Poisson a partir de probabilidades 1X2.
+
+    Mejora sobre la versión anterior: usa p_draw para calibrar λ_total.
+    Relación empírica LaLiga: más empates → menos goles totales.
+      λ_total ≈ 3.5 - 2.8 × P(draw)   [rango típico 1.8–3.4 según jornada]
+    """
+    # λ total ajustado por la tasa de empate del partido
+    p_draw_clamped = min(max(p_draw, 0.05), 0.50)
+    total_prior    = max(1.6, 3.5 - 2.8 * p_draw_clamped)
+
     try:
         from scipy.optimize import minimize
         from ...core.poisson import score_matrix, probs_from_matrix
@@ -217,13 +234,13 @@ def _lambdas_from_probs(p_home: float, p_away: float) -> tuple[float, float]:
             lh = max(x[0], 0.1)
             la = max(x[1], 0.1)
             mat = score_matrix(lh, la, rho=-0.10)
-            ph, _, pa = probs_from_matrix(mat)
-            return (ph - p_home) ** 2 + (pa - p_away) ** 2
+            ph, pd_, pa = probs_from_matrix(mat)
+            # Incluir p_draw en la función de pérdida para mejor calibración
+            return (ph - p_home) ** 2 + (pa - p_away) ** 2 + 0.3 * (pd_ - p_draw) ** 2
 
         ratio = (p_home / max(p_away, 0.05)) ** 0.4
-        total = 2.7
-        lh0 = total * ratio / (1.0 + ratio)
-        la0 = total / (1.0 + ratio)
+        lh0 = total_prior * ratio / (1.0 + ratio)
+        la0 = total_prior / (1.0 + ratio)
         res  = minimize(
             loss, [lh0, la0], method="Nelder-Mead",
             options={"xatol": 0.05, "fatol": 1e-4, "maxiter": 400},
@@ -231,7 +248,9 @@ def _lambdas_from_probs(p_home: float, p_away: float) -> tuple[float, float]:
         return max(float(res.x[0]), 0.1), max(float(res.x[1]), 0.1)
     except Exception:
         ratio = (p_home / max(p_away, 0.05)) ** 0.5
-        return round(1.5 * ratio, 2), round(1.1 / ratio, 2)
+        lh = round(total_prior * ratio / (1.0 + ratio), 2)
+        la = round(total_prior / (1.0 + ratio), 2)
+        return max(lh, 0.1), max(la, 0.1)
 
 
 def _predict_exact_scores(
@@ -242,7 +261,7 @@ def _predict_exact_scores(
         return []
     try:
         from ...core.poisson import score_matrix
-        lh, la  = _lambdas_from_probs(p_h, p_a)
+        lh, la  = _lambdas_from_probs(p_h, p_a, p_d)
         mat     = score_matrix(lh, la)
         scores  = [
             (i, j, float(mat[i, j]))
@@ -530,12 +549,12 @@ class QuinielaView(ctk.CTkFrame):
         self._ml_btn.pack(side="left", padx=(3, 8), pady=5)
 
         # ═══════════════════════════════════════════════════════════════════════
-        # FILA 1 — Status izq · Dobles centro · Acciones der
+        # FILA 1 — Dobles izq · Status centro · Acciones der
         # ═══════════════════════════════════════════════════════════════════════
         row1 = ctk.CTkFrame(ctrl, fg_color="transparent")
         row1.pack(fill="x", padx=10, pady=(0, 4))
 
-        # Acciones — derecha (pack primero = más a la derecha)
+        # ── Acciones — derecha (pack PRIMERO = más a la derecha) ─────────────
         _ACT_BTN = dict(height=28, corner_radius=8, font=ctk.CTkFont(size=10))
         _grp_act = ctk.CTkFrame(row1, fg_color="transparent")
         _grp_act.pack(side="right")
@@ -576,37 +595,46 @@ class QuinielaView(ctk.CTkFrame):
             fg_color="#1a0a0a", hover_color="#2a0f0f", **_ACT_BTN,
         ).pack(side="left", padx=(2, 4))
 
-        # Dobles — derecha (pack segundo = queda entre status y acciones)
-        doubles_bar = ctk.CTkFrame(row1, fg_color="transparent")
-        doubles_bar.pack(side="right", padx=(0, 12))
-        ctk.CTkLabel(
-            doubles_bar, text="Dobles:",
-            text_color=MUTED, font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=(0, 5))
-        self._doubles_val_lbl = ctk.CTkLabel(
-            doubles_bar, text="Auto",
-            text_color=TEXT, font=ctk.CTkFont(size=11, weight="bold"), width=80, anchor="w",
-        )
-        self._doubles_val_lbl.pack(side="left")
-        ctk.CTkSlider(
-            doubles_bar, from_=0, to=7, number_of_steps=7,
-            variable=self._n_doubles,
-            command=self._on_doubles_change,
-            width=150,
-        ).pack(side="left", padx=(0, 5))
-        self._doubles_cost_lbl = ctk.CTkLabel(
-            doubles_bar, text="",
-            text_color=MUTED, font=ctk.CTkFont(size=10),
-        )
-        self._doubles_cost_lbl.pack(side="left")
-
-        # Status — izquierda, fill para ocupar el espacio restante
+        # ── Status — fill para ocupar el espacio central restante ────────────
         self.status_lbl = ctk.CTkLabel(
             row1,
             text="📋  Pulsa 'Jornada' para cargar la jornada oficial",
             text_color=MUTED, font=ctk.CTkFont(size=11), anchor="w",
         )
         self.status_lbl.pack(side="left", fill="x", expand=True)
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # FILA 1b — Selector de dobles (fila propia, siempre visible)
+        # ═══════════════════════════════════════════════════════════════════════
+        row_dbl = ctk.CTkFrame(ctrl, fg_color=CARD_2, corner_radius=8)
+        row_dbl.pack(fill="x", padx=10, pady=(0, 4))
+
+        ctk.CTkLabel(
+            row_dbl,
+            text="  Nº Dobles en el boleto:",
+            text_color=TEXT,
+            font=ctk.CTkFont(size=11, weight="bold"),
+        ).pack(side="left", padx=(6, 10), pady=6)
+
+        self._doubles_btns: dict[int, ctk.CTkButton] = {}
+        _dbl_opts = [(0, "Auto (IA)"), (1, "1"), (2, "2"), (3, "3"), (4, "4"), (5, "5")]
+        for _v, _lbl in _dbl_opts:
+            _b = ctk.CTkButton(
+                row_dbl,
+                text=_lbl,
+                width=60, height=30,
+                font=ctk.CTkFont(size=11),
+                fg_color="#112211",
+                hover_color="#1a3a1a",
+                text_color="#90d890",
+                border_width=1,
+                border_color="#2a5a2a",
+                corner_radius=6,
+                command=lambda v=_v: self._set_doubles(v),
+            )
+            _b.pack(side="left", padx=3, pady=5)
+            self._doubles_btns[_v] = _b
+        self._highlight_doubles_btn(0)
 
         # ═══════════════════════════════════════════════════════════════════════
         # FILA 2 — Patrón 1/X/2 + inteligencia de jornada
@@ -1018,7 +1046,7 @@ class QuinielaView(ctk.CTkFrame):
         ).pack(side="left", padx=16, pady=10)
 
         ctk.CTkLabel(
-            hdr, text="Maximiza P(pleno 15) para tu presupuesto",
+            hdr, text="Maximiza P(pleno 15) + VE del boleto · DP global",
             text_color=MUTED, font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=(0, 16), pady=10)
 
@@ -1147,7 +1175,7 @@ class QuinielaView(ctk.CTkFrame):
         # ── Panel de estadísticas ─────────────────────────────────────────────
         stats_frame = ctk.CTkFrame(dlg, fg_color=CARD, corner_radius=10)
         stats_frame.pack(fill="x", padx=16, pady=(0, 6))
-        stats_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        stats_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
         _stat_keys = [
             ("cost",   "Coste real",        "—"),
@@ -1155,6 +1183,7 @@ class QuinielaView(ctk.CTkFrame):
             ("p15",    "P(pleno 15)",       "—"),
             ("p14",    "P(14 aciertos)",    "—"),
             ("p13",    "P(13 aciertos)",    "—"),
+            ("ev",     "Valor Esperado",    "—"),
         ]
         _stat_lbls: dict[str, ctk.CTkLabel] = {}
         for col, (key, title, _default) in enumerate(_stat_keys):
@@ -1196,10 +1225,13 @@ class QuinielaView(ctk.CTkFrame):
                     r.pick_var.set(picks[i])
             self._refresh_tree()   # refresca tabla + KPIs
             dlg.destroy()
+            _ev_part = ""
+            if res.get("ev") is not None:
+                _ev_part = f" · VE {res['ev']:+.2f} €"
             self.status_lbl.configure(
                 text=f"🎯 Boleto optimizado aplicado — "
                      f"{res['combinations']} comb. · {res['cost']:.2f} € · "
-                     f"P(pleno) {res['p_correct']:.4%}"
+                     f"P(pleno) {res['p_correct']:.4%}{_ev_part}"
             )
 
         ctk.CTkButton(
@@ -1322,6 +1354,19 @@ class QuinielaView(ctk.CTkFrame):
 
             _stat_lbls["p14"].configure(text=f"{p14:.3%}" if p14 >= 0.001 else f"{p14:.2e}")
             _stat_lbls["p13"].configure(text=f"{p13:.2%}" if p13 >= 0.001 else f"{p13:.2e}")
+
+            # Valor Esperado
+            ev = res.get("ev")
+            if ev is not None:
+                if ev >= 0:
+                    ev_txt = f"+{ev:.2f} €"
+                    ev_col = "#4ade80"
+                else:
+                    ev_txt = f"{ev:.2f} €"
+                    ev_col = "#f87171"
+                _stat_lbls["ev"].configure(text=ev_txt, text_color=ev_col)
+            else:
+                _stat_lbls["ev"].configure(text="—")
 
         # Highlight del botón por defecto (2.20€)
         _set_budget(2.20)
@@ -1580,23 +1625,40 @@ class QuinielaView(ctk.CTkFrame):
 
     # ── Selector de dobles ────────────────────────────────────────────────────
 
+    def _highlight_doubles_btn(self, selected: int) -> None:
+        """Resalta el botón activo y apaga los demás."""
+        for v, btn in self._doubles_btns.items():
+            if v == selected:
+                btn.configure(
+                    fg_color="#0f4a20", border_color="#22c55e",
+                    text_color="#4ade80",
+                )
+            else:
+                btn.configure(
+                    fg_color="#0a120a", border_color="#1a3a1a",
+                    text_color=TEXT,
+                )
+
+    def _set_doubles(self, n: int) -> None:
+        """Selecciona el número de dobles y actualiza UI + picks."""
+        self._n_doubles.set(n)
+        self._highlight_doubles_btn(n)
+        self._on_doubles_change(float(n))
+
+    def _on_doubles_seg(self, value: str) -> None:
+        """Compatibilidad — no usado desde la nueva UI."""
+        n = 0 if value == "Auto" else int(value)
+        self._set_doubles(n)
+
+    def _step_doubles(self, delta: int) -> None:
+        """Mueve el selector de dobles en ±1."""
+        n = max(0, min(5, self._n_doubles.get() + delta))
+        self._set_doubles(n)
+
     def _on_doubles_change(self, val: float) -> None:
-        """Responde al slider de dobles: actualiza etiqueta y re-aplica picks."""
+        """Re-aplica picks IA con el nuevo número de dobles."""
         n = int(round(float(val)))
         self._n_doubles.set(n)
-
-        if n == 0:
-            self._doubles_val_lbl.configure(text="Auto (IA decide)")
-            self._doubles_cost_lbl.configure(text="")
-        else:
-            coste = round((2 ** n) * COSTE_BASE, 2)
-            self._doubles_val_lbl.configure(
-                text=f"{n} doble{'s' if n > 1 else ''}"
-            )
-            self._doubles_cost_lbl.configure(
-                text=f"≈ {coste:.2f} € (sólo dobles, sin triples)"
-            )
-
         if self._rows:
             self._apply_picks()
             self._refresh_tree()
@@ -2722,6 +2784,14 @@ class QuinielaView(ctk.CTkFrame):
         ).grid(row=0, column=0, sticky="w")
 
         ctk.CTkButton(
+            hdr, text="🔄 Verificar todos ahora",
+            command=self._verify_all_now,
+            fg_color="#10301a", hover_color="#164020",
+            border_color="#22c55e", border_width=1,
+            text_color="#a7f3c0", width=170, height=26,
+        ).grid(row=0, column=1, sticky="e", padx=(0, 8))
+
+        ctk.CTkButton(
             hdr, text="✕ Cerrar",
             command=self._toggle_historial,
             fg_color="transparent", hover_color="#1a2a1a",
@@ -2746,6 +2816,13 @@ class QuinielaView(ctk.CTkFrame):
             text_color=MUTED, font=ctk.CTkFont(size=12),
         )
         self._hist_empty_lbl.grid(row=0, column=0, pady=30)
+
+    def _verify_all_now(self) -> None:
+        """Dispara la verificación automática de todos los boletos pendientes."""
+        try:
+            self.app.verify_quinielas_now()
+        except Exception:
+            pass
 
     def _toggle_historial(self) -> None:
         """Muestra u oculta el panel de historial."""

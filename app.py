@@ -157,6 +157,40 @@ class PremiumApp(ctk.CTk):
         # Verificar frescura de datos al arrancar
         self.after(500, self._check_data_freshness)
 
+        # Arrancar loop de auto-auditoría (si está configurada)
+        self._audit_after_id: Optional[str] = None
+        self.after(8000, self._start_auto_audit_loop)   # dar 8s al arranque
+
+        # Verificación automática de quinielas pendientes al arrancar (en hilo,
+        # vía ESPN). Funciona aunque la auto-auditoría esté desactivada.
+        self.after(15000, self._start_quiniela_autoverify)
+
+        # Auto-liquidación de combinadas (IA / Builder) pendientes al arrancar.
+        self.after(18000, self._start_combo_autosettle)
+
+        # Aplicar tema guardado (se hace después de build_ui para poder reconfigurar)
+        self._active_nav: str = "analysis"
+        _saved_theme = self.storage.get_setting("theme", "Navy")
+        if _saved_theme != "Navy":
+            self.apply_theme(_saved_theme, save=False)
+
+        # ── Fluido: pausar animaciones mientras la ventana está minimizada ────────
+        # Los loops after(16,...) siguen ejecutándose aunque el OS tape la ventana.
+        # Al restaurar, drenar ese acúmulo causa el lag perceptible.
+        # Solución: throttle a 500 ms cuando está minimizada; al restaurar, esperar
+        # un tick de repintado antes de volver a 60 fps.
+        self._animations_paused: bool = False
+        self.bind('<Unmap>', self._on_window_unmap)
+        self.bind('<Map>',   self._on_window_map)
+
+        # Recuperación al volver de REPOSO/suspensión: al despertar el PC la
+        # ventana no se minimiza (no salta <Map>), pero el proceso estuvo
+        # congelado y Windows repinta todo de golpe. Un vigilante detecta el
+        # salto de tiempo y da un respiro de repintado sin animaciones.
+        self.title("AlphaBet · Quant Pro")
+        self._wake_last: float = 0.0
+        self.after(2000, self._start_wake_watchdog)
+
     def _try_maximize(self) -> None:
         """Maximiza la ventana en Windows; en otros OS la deja al tamaño calculado."""
         try:
@@ -166,6 +200,76 @@ class PremiumApp(ctk.CTk):
                 self.attributes("-zoomed", True)   # Linux (algunos WM)
             except Exception:
                 pass                    # macOS: no existe, se queda al tamaño calculado
+
+    # ── Gestión minimize/restore ──────────────────────────────────────────────
+
+    def _on_window_unmap(self, event=None) -> None:
+        """Pausa animaciones (ticker + logo) cuando la ventana se minimiza.
+
+        Evita que los loops after(16,...) acumulen callbacks mientras la
+        ventana está tapada — ese acúmulo es la causa principal del lag al
+        restaurar.
+        """
+        if event and event.widget is not self:
+            return          # evento de un widget hijo, ignorar
+        self._animations_paused = True
+
+    def _on_window_map(self, event=None) -> None:
+        """Reanuda animaciones cuando la ventana se restaura.
+
+        Espera un único tick de idletasks para que tkinter complete el
+        repintado completo de la ventana antes de volver a 60 fps.
+        """
+        if event and event.widget is not self:
+            return          # evento de un widget hijo, ignorar
+        if not getattr(self, '_animations_paused', False):
+            return          # no estaba en pausa, no hay nada que reactivar
+        self._animations_paused = False
+        # Forzar repintado inmediato → evita frame "congelado" al restaurar
+        self.after(10, self.update_idletasks)
+
+    # ── Recuperación de reposo/suspensión ─────────────────────────────────────
+
+    def _start_wake_watchdog(self) -> None:
+        """Arranca el vigilante de reposo (comprueba cada ~1.5 s)."""
+        import time
+        self._wake_last = time.time()
+        self._wake_tick()
+
+    def _wake_tick(self) -> None:
+        """Detecta un salto grande de tiempo (el PC estuvo en reposo) y, si lo
+        hay, hace una recuperación suave del repintado."""
+        import time
+        now = time.time()
+        gap = now - getattr(self, "_wake_last", now)
+        self._wake_last = now
+        # Gap mucho mayor que el intervalo del tick → el proceso estuvo congelado
+        if gap > 5.0:
+            self._on_system_wake()
+        try:
+            self.after(1500, self._wake_tick)
+        except Exception:
+            pass
+
+    def _on_system_wake(self) -> None:
+        """Da un respiro al despertar: pausa animaciones, repinta limpio y las
+        reanuda tras un instante (evita que compitan con el repintado de Windows)."""
+        self._animations_paused = True
+        try:
+            self.update_idletasks()
+        except Exception:
+            pass
+        # Reanudar las animaciones tras ~0.7 s, ya con la ventana repintada
+        self.after(700, self._wake_resume)
+
+    def _wake_resume(self) -> None:
+        # Si la ventana sigue minimizada, dejar pausado: ya lo reactivará <Map>
+        try:
+            if self.state() == "iconic":
+                return
+        except Exception:
+            pass
+        self._animations_paused = False
 
     def _update_claude_counter(self) -> None:
         """Refresca el contador de uso de Claude IA en el sidebar."""
@@ -246,40 +350,66 @@ class PremiumApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
+        self._build_galaxy_bg()   # fondo galáctico detrás de todo
         self._build_sidebar()
         self._build_stage()
 
         self.show_analysis_view()
 
-    def _build_pitch_bg(self) -> None:
+    def _build_galaxy_bg(self) -> None:
         """
-        Canvas de fondo que rellena la ventana con el color BG del campo.
+        Canvas de fondo a pantalla completa: oscuro (#020810) con 90 estrellas
+        que parpadean suavemente (una alterna ON/OFF cada 140 ms).
 
-        Usa tk.Misc.lower() (no Canvas.lower(), que es para items canvas)
-        para quedar DETRÁS de todos los demás widgets. Los CTkFrames con
-        fg_color='transparent' muestran este fondo en lugar de negro puro.
+        Visible en los márgenes alrededor del sidebar y el contenido. Se coloca
+        con tk.Misc.lower() detrás de todos los widgets. Pausa automática al
+        minimizar (flag self._animations_paused).
         """
-        W = self.winfo_screenwidth()
-        H = self.winfo_screenheight()
-        GD = "#093d18"   # verde oscuro del césped
-        GL = "#0b5c22"   # verde claro (franjas alternas)
+        import random as _rng
 
-        c = tk.Canvas(self, width=W, height=H, bg="#020810",
-                      highlightthickness=0, bd=0)
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+
+        # ── Canvas base (inmediato, fondo oscuro) ─────────────────────────
+        c = tk.Canvas(self, bg="#020810", highlightthickness=0, bd=0)
         c.place(x=0, y=0, relwidth=1, relheight=1)
+        self._galaxy_canvas = c
 
-        # Cuadrícula de puntos (estilo terminal financiero)
-        spacing = 50
-        for x in range(0, W, spacing):
-            for y in range(0, H, spacing):
-                c.create_oval(x-1, y-1, x+1, y+1,
-                              fill="#0d1e33", outline="")
+        # ── Estrellas canvas inmediatas (puras tkinter, sin PIL) ──────────
+        rng = _rng.Random(42)
+        _STAR_COLS = ["#c0e8ff", "#ffffff", "#ffe8d0", "#a8ccff", "#d0ffe8"]
+        _star_items: list[tuple[int, str]] = []
+        for _ in range(90):
+            sx  = rng.randint(0, sw)
+            sy  = rng.randint(0, sh)
+            sz  = rng.choice([1, 1, 1, 2, 2])
+            col = rng.choice(_STAR_COLS)
+            sid = c.create_oval(sx-sz, sy-sz, sx+sz, sy+sz,
+                                fill=col, outline="")
+            _star_items.append((sid, col))
 
-        # Líneas horizontales muy tenues
-        for y in range(0, H, 80):
-            c.create_line(0, y, W, y, fill="#090f1c", width=1)
+        # ── Animación twinkle — 1 estrella alterna cada 140 ms ────────────
+        _tw: list[int] = [0]
 
-        # Poner el canvas DETRÁS de todos los demás widgets
+        def _twinkle() -> None:
+            if getattr(self, '_animations_paused', False):
+                c.after(800, _twinkle)
+                return
+            try:
+                if not c.winfo_exists():
+                    return
+                i = (_tw[0] + 1) % len(_star_items)
+                _tw[0] = i
+                sid, col = _star_items[i]
+                off = c.itemcget(sid, "fill") != "#020810"
+                c.itemconfig(sid, fill="#020810" if off else col)
+                c.after(140, _twinkle)
+            except Exception:
+                pass
+
+        c.after(1500, _twinkle)      # pequeño delay al arranque
+
+        # ── Detrás de todo ────────────────────────────────────────────────
         tk.Misc.lower(c)
 
     def _draw_logo_header(self, parent) -> tk.Canvas:
@@ -287,8 +417,8 @@ class PremiumApp(ctk.CTk):
         import os
         from PIL import Image, ImageTk
 
-        W, H = 210, 248
-        cx, cy = W // 2, 96   # centro del símbolo α en el PNG
+        W, H = 238, 280
+        cx, cy = W // 2, 108  # centro del símbolo α en el PNG
 
         # ── Fondo: PNG PIL (fondo galáctico + α con glow) ────────────────────
         logo_path = os.path.join(
@@ -299,12 +429,12 @@ class PremiumApp(ctk.CTk):
                 import sys as _sys
                 _sys.path.insert(0, os.path.dirname(logo_path))
                 from generate_logo import generate_sidebar_logo
-                generate_sidebar_logo(logo_path)
+                generate_sidebar_logo(logo_path, W=238, H=280)
             except Exception:
                 pass
 
         c = tk.Canvas(parent, width=W, height=H,
-                      highlightthickness=0, bd=0, bg="#02060e")
+                      highlightthickness=0, bd=0, bg="#040c18")
         try:
             pil_img = Image.open(logo_path)
             photo   = ImageTk.PhotoImage(pil_img)
@@ -380,6 +510,12 @@ class PremiumApp(ctk.CTk):
         anim_id = [None]
 
         def _animate(t=0.0):
+            if not c.winfo_exists():
+                return                      # canvas destruido → no reprogramar
+            # Ventana minimizada → congelar fotograma y esperar sin consumir CPU
+            if getattr(self, '_animations_paused', False):
+                anim_id[0] = c.after(500, lambda: _animate(t))
+                return
             step1 = 0.042 * 1.15   # incremento angular por frame órbita 1
             step2 = 0.042 * 0.80   # incremento angular por frame órbita 2
 
@@ -415,7 +551,9 @@ class PremiumApp(ctk.CTk):
             c.coords(pulse, cx - pr, cy - pr, cx + pr, cy + pr)
             c.itemconfig(pulse, outline=f"#{ri:02x}{rg:02x}{rb:02x}")
 
-            anim_id[0] = c.after(33, lambda: _animate(t + 0.042))
+            # 30 fps (en vez de 60): mitad de redibujados del logo con la misma
+            # velocidad visual (el incremento de t se dobla). Menos CPU constante.
+            anim_id[0] = c.after(33, lambda: _animate(t + 0.140))
 
         c.bind("<Destroy>",
                lambda e: c.after_cancel(anim_id[0]) if anim_id[0] else None)
@@ -423,12 +561,25 @@ class PremiumApp(ctk.CTk):
         return c
 
     def _build_sidebar(self) -> None:
+        from .core.themes import get_current_theme as _gct
+        _t = _gct()
         sidebar = ctk.CTkFrame(
-            self, fg_color="#040c18", width=240,
-            corner_radius=20, border_color="#0d9488", border_width=1,
+            self, fg_color=_t["sidebar_bg"], width=240,
+            corner_radius=20, border_color=_t["sidebar_border"], border_width=1,
         )
         sidebar.grid(row=0, column=0, sticky="nsw", padx=(14, 10), pady=14)
         sidebar.grid_propagate(False)
+        self._sidebar = sidebar          # ref para apply_theme()
+
+        # ── Logo AlphaBet (fuera del scroll, ancho completo del sidebar) ─────────
+        logo_wrap = ctk.CTkFrame(sidebar, fg_color="transparent")
+        logo_wrap.pack(fill="x", padx=0, pady=0)
+        self._draw_logo_header(logo_wrap).pack(padx=0, pady=0)
+
+        # Separador sólido: evita que el repaint del canvas anime
+        # interfiera con el CTkScrollableFrame en Windows
+        ctk.CTkFrame(sidebar, fg_color="#040c18", height=2,
+                     corner_radius=0).pack(fill="x", padx=0, pady=0)
 
         # ── Contenedor scrollable ─────────────────────────────────────────────
         inner = ctk.CTkScrollableFrame(
@@ -439,28 +590,49 @@ class PremiumApp(ctk.CTk):
         )
         inner.pack(fill="both", expand=True, padx=0, pady=0)
 
-        # ── Logo AlphaBet ──────────────────────────────────────────────────────
-        logo_wrap = ctk.CTkFrame(inner, fg_color="#080f0a", corner_radius=10)
-        logo_wrap.pack(fill="x", padx=8, pady=(10, 4))
-        self._draw_logo_header(logo_wrap).pack(padx=2, pady=4)
-
         # ── Navegación ─────────────────────────────────────────────────────────
         self._nav_btns: dict[str, ctk.CTkButton] = {}
+
+        # None = separador visual con etiqueta de grupo
         nav_items = [
+            None, "ANÁLISIS",
             ("analysis",    "📊  Trading Desk",   self.show_analysis_view),
             ("accumulator", "⚡  Combinadas IA",  self.show_accumulator_view),
             ("quiniela",    "⚽  Quiniela IA",    self.show_quiniela_view),
+            None, "MERCADO",
             ("alerts",      "🔔  Alertas",        self.show_alerts_view),
             ("results",     "📋  Resultados",     self.show_results_view),
             ("live",        "🟢  Live Scores",    self.show_live_view),
             ("calendar",    "📅  Calendario",     self.show_calendar_view),
             ("execution",   "🎯  Manual Slip",    self.show_execution_view),
+            None, "RENDIMIENTO",
             ("portfolio",    "📈  Portfolio",      self.show_portfolio_view),
             ("performance", "📉  Performance",    self.show_performance_view),
+            None, "HERRAMIENTAS",
             ("chat",        "🧠  Chat IA",        self.show_chat_view),
             ("settings",    "⚙️  Strategy",       self.show_settings_view),
         ]
-        for key, label, cmd in nav_items:
+
+        _pending_label: str | None = None
+        for item in nav_items:
+            if item is None:
+                continue                   # marca que el siguiente string es label
+            if isinstance(item, str):
+                _pending_label = item
+                continue
+            # Separador + label de grupo antes del primer botón del grupo
+            if _pending_label is not None:
+                sep = tk.Frame(inner, bg="#0d1f30", height=1)
+                sep.pack(fill="x", padx=16, pady=(8, 2))
+                ctk.CTkLabel(
+                    inner, text=_pending_label,
+                    text_color="#2e5f78",
+                    font=ctk.CTkFont(size=9, weight="bold"),
+                    anchor="w",
+                ).pack(fill="x", padx=20, pady=(0, 2))
+                _pending_label = None
+
+            key, label, cmd = item
             btn = ctk.CTkButton(
                 inner, text=label, command=cmd,
                 fg_color="#060f1e", hover_color="#0a1830",
@@ -470,7 +642,7 @@ class PremiumApp(ctk.CTk):
                 font=ctk.CTkFont(size=12),
                 border_spacing=8,
             )
-            btn.pack(fill="x", padx=12, pady=3)
+            btn.pack(fill="x", padx=12, pady=2)
             self._nav_btns[key] = btn
 
         self._run_btn = ctk.CTkButton(
@@ -650,7 +822,7 @@ class PremiumApp(ctk.CTk):
             font=("Consolas", 10),
         )
         self._ticker_x     = 0.0        # posición X actual del texto
-        self._ticker_speed = 2.5        # px por frame
+        self._ticker_speed = 1.5        # px por frame a 60 fps ≈ 90 px/s
         self._ticker_after: str | None = None
         self._ticker_token: int        = 0   # token de generación — evita loops duplicados
         self._ticker_after = self.after(200, lambda: self._ticker_step(0))
@@ -666,6 +838,10 @@ class PremiumApp(ctk.CTk):
             return
         if token != getattr(self, "_ticker_token", 0):
             return  # callback obsoleto — ignorar, NO reprogramar
+        # Ventana minimizada → throttle a 500 ms para no acumular callbacks
+        if getattr(self, '_animations_paused', False):
+            self._ticker_after = self.after(500, lambda: self._ticker_step(token))
+            return
         try:
             c   = self._ticker_canvas
             cw  = c.winfo_width()
@@ -675,7 +851,7 @@ class PremiumApp(ctk.CTk):
 
             bbox = c.bbox(self._ticker_text_id)
             if not bbox:
-                self._ticker_after = self.after(150, lambda: self._ticker_step(token))
+                self._ticker_after = self.after(16, lambda: self._ticker_step(token))
                 return
 
             txt_w = bbox[2] - bbox[0]
@@ -684,7 +860,7 @@ class PremiumApp(ctk.CTk):
             if self._ticker_x + txt_w < 0:
                 self._ticker_x = cw
             c.coords(self._ticker_text_id, self._ticker_x, 14)
-            self._ticker_after = self.after(150, lambda: self._ticker_step(token))  # ~7 fps
+            self._ticker_after = self.after(16, lambda: self._ticker_step(token))  # 60 fps
         except Exception:
             pass
 
@@ -744,7 +920,7 @@ class PremiumApp(ctk.CTk):
         except Exception:
             pass
         # Reiniciar el loop con el nuevo token — solo este callback continuará
-        self._ticker_after = self.after(200, lambda: self._ticker_step(tok))
+        self._ticker_after = self.after(16, lambda: self._ticker_step(tok))
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -758,16 +934,77 @@ class PremiumApp(ctk.CTk):
         "calendar":    ("Calendario",      "Vista mensual de picks · Click en un día para ver detalle"),
         "execution":   ("Manual Slip",     "Simulación manual 1X2, cuota, stake y retorno"),
         "portfolio":   ("Portfolio",       "Historial de combinadas, ROI y liquidación"),
+        "performance": ("Performance",     "Equity, calibración del modelo, CLV y ROI por liga"),
         "chat":        ("Chat IA",         "Analista cuantitativo · Pregunta sobre picks, estrategia y bankroll"),
         "settings":    ("Strategy",        "Telegram, combo builder y configuración"),
     }
 
-    def _set_nav(self, active: str) -> None:
+    # ── Temas de color ────────────────────────────────────────────────────────
+
+    def apply_theme(self, theme_name: str, save: bool = True) -> None:
+        """
+        Aplica un tema de color a la UI al instante.
+        Cambia: sidebar, nav buttons, run button y variables de config.
+        Los content views muestran el nuevo tema en el siguiente refresh.
+        """
+        from .core import config as _cfg
+        from .core.themes import get_theme, set_active_theme, THEMES
+
+        if theme_name not in THEMES:
+            return
+        t = get_theme(theme_name)
+        set_active_theme(theme_name)
+
+        # ── Actualizar variables globales de config ────────────────────────────
+        _cfg.ACCENT   = t["accent"]
+        _cfg.ACCENT_2 = t["accent2"]
+        _cfg.BORDER   = t["border"]
+        _cfg.BG       = t["bg"]
+        _cfg.CARD     = t["card"]
+        _cfg.CARD_2   = t["card2"]
+        _cfg.MUTED    = t["muted"]
+        _cfg.TEXT     = t["text"]
+
+        # ── Sidebar frame ──────────────────────────────────────────────────────
+        if hasattr(self, "_sidebar"):
+            self._sidebar.configure(
+                fg_color=t["sidebar_bg"],
+                border_color=t["sidebar_border"],
+            )
+
+        # ── Nav buttons ───────────────────────────────────────────────────────
+        active = getattr(self, "_active_nav", "analysis")
         for key, btn in self._nav_btns.items():
             is_active = key == active
             btn.configure(
-                fg_color="#0e3a50" if is_active else "#060f1e",
-                text_color="#22d3ee" if is_active else TEXT,
+                fg_color=t["nav_active_bg"] if is_active else t["nav_inactive_bg"],
+                text_color=t["accent"] if is_active else t["nav_inactive_text"],
+                hover_color=t["nav_active_bg"] if is_active else t["nav_hover_bg"],
+            )
+
+        # ── Run Analysis button ────────────────────────────────────────────────
+        if hasattr(self, "_run_btn"):
+            self._run_btn.configure(
+                fg_color=t["run_btn"],
+                hover_color=t["run_btn_hover"],
+            )
+
+        # ── Guardar preferencia ────────────────────────────────────────────────
+        if save:
+            self.storage.set_setting("theme", theme_name)
+
+        logger.info("Tema aplicado: %s", theme_name)
+
+    def _set_nav(self, active: str) -> None:
+        from .core.themes import get_current_theme as _gct
+        _t = _gct()
+        self._active_nav = active
+        for key, btn in self._nav_btns.items():
+            is_active = key == active
+            btn.configure(
+                fg_color=_t["nav_active_bg"] if is_active else _t["nav_inactive_bg"],
+                text_color=_t["accent"] if is_active else _t["nav_inactive_text"],
+                hover_color=_t["nav_active_bg"] if is_active else _t["nav_hover_bg"],
                 font=ctk.CTkFont(size=12, weight="bold" if is_active else "normal"),
             )
         title, hint = self._NAV_META[active]
@@ -1067,6 +1304,14 @@ class PremiumApp(ctk.CTk):
                 div_codes = [LEAGUE_MAP[n][0] for n in selected]
                 fixtures, remaining = fetch_odds_fixtures(odds_api_key, div_codes)
                 self._ui(lambda r=remaining: self._store_remaining(r))
+                # CLV automático: con cuotas frescas, captura la cuota de cierre de
+                # los picks pendientes cuyo partido sigue por jugarse. Se sobrescribe
+                # en cada análisis → el último valor antes del kickoff es el cierre.
+                try:
+                    from .core.clv_tracker import capture_closing_lines
+                    capture_closing_lines(self.storage, fixtures)
+                except Exception as exc:
+                    logger.debug("CLV automático: %s", exc)
                 if fixtures.empty:
                     self._set_status("⚠ Sin fixtures de Odds API, usando football-data.co.uk…")
                     fixtures = fetch_csv(FIXTURES_URL)
@@ -1110,12 +1355,43 @@ class PremiumApp(ctk.CTk):
                 _use_injury = self.storage.get_setting("use_injury_api", "0") == "1"
                 _injury_key = self.storage.get_setting("injury_api_key", "") if _use_injury else ""
 
+                # P&L histórico en orden CRONOLÓGICO (antiguo→reciente). Es clave:
+                # load_model_picks va id DESC, así que se invierte para que la
+                # ventana "últimos N" del Kelly dinámico y la racha del circuit
+                # breaker miren de verdad los picks más RECIENTES.
+                _hist_picks  = self.storage.load_model_picks(limit=200)
+                _settled_pnl = [
+                    float(p["pnl"])
+                    for p in reversed(_hist_picks)
+                    if p.get("status") in ("WIN", "LOSS")
+                    and p.get("pnl") is not None
+                ]
+
+                # Circuit breaker: reduce (0.5×) o pausa (0×) el stake según la
+                # racha de pérdidas y el drawdown sobre el bankroll.
+                from .core.risk_guard import compute_risk_state
+                try:
+                    _bankroll = float(self.bankroll_eur.get() or 0)
+                except (ValueError, AttributeError):
+                    _bankroll = 0.0
+                self._risk_state = compute_risk_state(_settled_pnl, _bankroll)
+
+                # Corrección de calibración: aprende del historial el sesgo del
+                # modelo (optimista/pesimista) y corrige las probabilidades. Solo
+                # se activa con suficientes picks liquidados (guarda interna).
+                from .core.prob_calibrator import fit_from_picks
+                _calibrator = fit_from_picks(_hist_picks)
+                self._prob_calibrator = _calibrator   # para mostrar estado en UI
+
                 results = analyzer.run(
                     divs_with_history,
                     _edge1,
                     _edge2,
                     progress_cb=_on_progress,
                     injury_api_key=_injury_key,
+                    settled_pnl=_settled_pnl,
+                    risk_multiplier=self._risk_state.multiplier,
+                    prob_calibrator=_calibrator,
                 )
 
                 # Enriquecer con xG real de Understat (columnas adicionales de display)
@@ -1218,6 +1494,21 @@ class PremiumApp(ctk.CTk):
         except Exception:
             pass
         self.update_ticker()          # actualizar ticker con los nuevos picks
+
+        # ── Circuit breaker: avisar si está restringiendo el stake ────────────
+        _rs = getattr(self, "_risk_state", None)
+        if _rs is not None and _rs.is_active:
+            try:
+                from .ui.toast import show_toast
+                if _rs.mode == "PAUSED":
+                    show_toast(self, "⛔  Apuestas en PAUSA",
+                               f"{_rs.reason}. Stakes a 0 hasta recuperar.",
+                               kind="loss", duration_ms=9000)
+                else:
+                    show_toast(self, "⚠️  Stake reducido a la mitad",
+                               _rs.reason, kind="warning", duration_ms=8000)
+            except Exception:
+                pass
 
         # ── Monte Carlo: pasar picks al simulador ─────────────────────────────
         try:
@@ -1502,6 +1793,21 @@ class PremiumApp(ctk.CTk):
 
     # ── Filters ───────────────────────────────────────────────────────────────
 
+    def _schedule_filter(self, delay_ms: int = 250) -> None:
+        """Debounce del buscador: reagenda apply_filters tras la última tecla,
+        para no reconstruir la tabla entera en cada pulsación."""
+        fid = getattr(self, "_filter_after_id", None)
+        if fid:
+            try:
+                self.after_cancel(fid)
+            except Exception:
+                pass
+        self._filter_after_id = self.after(delay_ms, self._run_scheduled_filter)
+
+    def _run_scheduled_filter(self) -> None:
+        self._filter_after_id = None
+        self.apply_filters()
+
     def apply_filters(self) -> None:
         df = self.results.copy() if not self.results.empty else pd.DataFrame()
 
@@ -1703,6 +2009,123 @@ class PremiumApp(ctk.CTk):
         self.storage.save_combo(snap)
         self.history = self.storage.load_combos()
         self._refresh_portfolio()
+
+    # ── Combinadas IA → Portfolio (con auto-liquidación) ──────────────────────
+    @staticmethod
+    def _iso_date(val) -> str:
+        """Normaliza una fecha (Timestamp/str/None) a 'YYYY-MM-DD' ('' si no hay)."""
+        try:
+            if val is None or pd.isna(val):
+                return ""
+        except Exception:
+            pass
+        ts = pd.to_datetime(val, errors="coerce")
+        if ts is None or pd.isna(ts):
+            return str(val)[:10]
+        return ts.strftime("%Y-%m-%d")
+
+    @staticmethod
+    def _combo_signature(payload: dict) -> tuple:
+        """Huella de una combinada por (match, pick) de cada pata — para deduplicar."""
+        return tuple(sorted(
+            (str(l.get("match", "")).lower(), str(l.get("pick", "")).upper())
+            for l in payload.get("legs", [])
+        ))
+
+    def save_ia_combo(self, combo: dict) -> None:
+        """
+        Guarda una Combinada IA en el Portfolio (combo_history) incluyendo los
+        campos de liquidación por pata (home_team / away_team / date / league)
+        para que la auto-liquidación la resuelva sola cuando haya resultados.
+        """
+        legs_raw = combo.get("legs") if isinstance(combo, dict) else None
+        if not legs_raw:
+            messagebox.showwarning("Combinada IA", "La combinada no tiene selecciones.")
+            return
+
+        def _g(row, key, default=None):
+            try:
+                val = row[key] if key in row else row.get(key, default)
+            except Exception:
+                try:
+                    val = row.get(key, default)
+                except Exception:
+                    val = default
+            try:
+                if val is None or pd.isna(val):
+                    return default
+            except Exception:
+                pass
+            return val
+
+        legs, rels, bankrolls = [], [], []
+        for row in legs_raw:
+            home = str(_g(row, "home_team", "?"))
+            away = str(_g(row, "away_team", "?"))
+            rel  = int(float(_g(row, "reliability_score", 0) or 0))
+            bp   = float(_g(row, "bankroll_pct", 0) or 0)
+            rels.append(rel)
+            bankrolls.append(bp)
+            legs.append({
+                "league":       str(_g(row, "league", "") or ""),
+                "match":        f"{home} vs {away}",
+                "pick":         str(_g(row, "pick", "") or ""),
+                "odds":         float(_g(row, "odds", 0) or 0),
+                "edge":         float(_g(row, "edge", 0) or 0),
+                "reliability":  rel,
+                "risk":         str(_g(row, "risk_light", "") or ""),
+                "ev":           float(_g(row, "ev", 0) or 0),
+                "bankroll_pct": bp,
+                # ── campos para auto-liquidación ──────────────────────────────
+                "home_team":    home,
+                "away_team":    away,
+                "date":         self._iso_date(_g(row, "date", "")),
+            })
+
+        total_odds = float(combo.get("combined_odds", 0) or 0)
+        if total_odds <= 0:
+            valid = [l["odds"] for l in legs if l["odds"] > 0]
+            total_odds = float(np.prod(valid)) if valid else 0.0
+        avg_rel = float(combo.get("avg_reliability",
+                                  (sum(rels) / len(rels)) if rels else 0.0) or 0.0)
+        avg_bankroll  = (sum(bankrolls) / len(bankrolls)) if bankrolls else 0.0
+        risk          = "VERDE" if avg_rel >= 78 else "AMARILLO" if avg_rel >= 68 else "ROJO"
+        bankroll_base = float(self.unit_stake.get() or 100)
+        suggested_pct = min(1.0, max(0.25, avg_bankroll))
+        stake_amount  = round(bankroll_base * suggested_pct / 100, 2)
+
+        payload = {
+            "timestamp":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "size":         len(legs),
+            "total_odds":   round(total_odds, 2),
+            "risk":         risk,
+            "stake_units":  round(suggested_pct, 2),
+            "stake_amount": stake_amount,
+            "legs":         legs,
+            "status":       "PENDING",
+            "profit":       0.0,
+            "roi":          0.0,
+            "source":       "combinada_ia",
+        }
+
+        # Evitar duplicados: misma huella de patas todavía PENDING
+        sig = self._combo_signature(payload)
+        for h in self.history:
+            if h.get("status") == "PENDING" and self._combo_signature(h) == sig:
+                messagebox.showinfo(
+                    "Combinada IA",
+                    "Esta combinada ya está guardada en el Portfolio (pendiente).")
+                return
+
+        self.storage.save_combo(payload)
+        self.history = self.storage.load_combos()
+        self._refresh_portfolio()
+        messagebox.showinfo(
+            "Combinada IA",
+            f"Combinada de {len(legs)} selecciones guardada en el Portfolio.\n"
+            f"Cuota total @ {total_odds:.2f} · Stake {stake_amount:.2f}\n\n"
+            "Se liquidará automáticamente (WIN/LOSS) cuando ESPN publique los "
+            "resultados de todas las patas.")
 
     def settle_combo_selected(self, result: str) -> None:
         """Liquida la combinada seleccionada en el Portfolio (cualquier fila)."""
@@ -2328,6 +2751,228 @@ class PremiumApp(ctk.CTk):
     @property
     def bot_running(self) -> bool:
         return self._tg_bot is not None and self._tg_bot.running
+
+    # ── Auto-auditoría periódica ──────────────────────────────────────────────
+
+    def _start_auto_audit_loop(self) -> None:
+        """Lee el intervalo configurado y programa el primer tick."""
+        interval_min = int(self.storage.get_setting("audit_interval_min", "30"))
+        if interval_min <= 0:
+            return
+        logger.info("Auto-auditoría: cada %d min", interval_min)
+        self._schedule_next_audit(interval_min)
+
+    def _schedule_next_audit(self, interval_min: int) -> None:
+        if self._audit_after_id:
+            try:
+                self.after_cancel(self._audit_after_id)
+            except Exception:
+                pass
+        self._audit_after_id = self.after(
+            interval_min * 60 * 1000, self._auto_audit_tick)
+
+    def _auto_audit_tick(self) -> None:
+        """Tick del loop: lanza worker en hilo y reprograma el siguiente."""
+        import threading
+        threading.Thread(target=self._audit_worker, daemon=True).start()
+        interval_min = int(self.storage.get_setting("audit_interval_min", "30"))
+        if interval_min > 0:
+            self._schedule_next_audit(interval_min)
+
+    def _audit_worker(self) -> None:
+        """Worker de auditoría (hilo secundario)."""
+        try:
+            from .core.auto_audit import run_audit
+            bankroll_eur = float(self.storage.get_setting("bankroll_eur", "1000"))
+            result = run_audit(self.storage, bankroll_eur)
+            self._ui(lambda r=result: self._on_audit_done(r))
+        except Exception as exc:
+            logger.error("Auto-audit error: %s", exc)
+        # Aprovechar el ciclo para verificar boletos de quiniela pendientes
+        self._quiniela_autoverify_worker()
+        # …y liquidar combinadas (IA / Builder) cuyas patas ya tengan resultado
+        self._combo_autosettle_worker()
+
+    # ── Verificación automática de quinielas ──────────────────────────────────
+
+    def _start_quiniela_autoverify(self) -> None:
+        """Lanza la verificación de quinielas en un hilo (no bloquea la UI)."""
+        import threading
+        threading.Thread(target=self._quiniela_autoverify_worker, daemon=True).start()
+
+    def _quiniela_autoverify_worker(self) -> None:
+        """Verifica los boletos pendientes vía ESPN (hilo secundario)."""
+        try:
+            from .core.quiniela_verifier import auto_verify_quinielas
+            verified = auto_verify_quinielas(self.storage).get("verified", [])
+            if verified:
+                self._ui(lambda v=verified: self._on_quiniela_verified(v))
+        except Exception as exc:
+            logger.warning("Auto-verificación quiniela: %s", exc)
+
+    def _on_quiniela_verified(self, verified: list) -> None:
+        """Refresca el historial, avisa por toast y envía a Telegram (hilo principal)."""
+        # Refrescar el historial de la vista de quiniela si existe
+        try:
+            self.quiniela_view._load_historial()
+        except Exception:
+            pass
+        # Toast por cada boleto verificado
+        try:
+            from .ui.toast import show_toast
+            for v in verified:
+                ac = v.get("aciertos", 0)
+                show_toast(
+                    self,
+                    f"🎟️  Quiniela J{v.get('jornada', '?')} verificada",
+                    f"{ac}/15 aciertos · {v.get('categoria', '')}",
+                    kind="success" if ac >= 10 else "info",
+                    duration_ms=8000,
+                )
+        except Exception:
+            pass
+        # Telegram (solo si está activado)
+        try:
+            if self.telegram_enabled.get():
+                from .core.quiniela_verifier import format_telegram
+                self.send_telegram_text(format_telegram(verified))
+        except Exception as exc:
+            logger.warning("Telegram quiniela: %s", exc)
+
+    def verify_quinielas_now(self) -> None:
+        """Disparo MANUAL: verifica los boletos pendientes ahora mismo, con
+        feedback tanto si se verifica alguno como si todavía faltan resultados."""
+        import threading
+        from .ui.toast import show_toast
+        show_toast(self, "🎟️  Verificando quinielas…",
+                   "Consultando resultados (ESPN)…", kind="info", duration_ms=4000)
+
+        def _worker():
+            try:
+                from .core.quiniela_verifier import auto_verify_quinielas
+                verified = auto_verify_quinielas(self.storage).get("verified", [])
+            except Exception as exc:
+                logger.warning("Verificación manual quiniela: %s", exc)
+                verified = []
+            if verified:
+                self._ui(lambda v=verified: self._on_quiniela_verified(v))
+            else:
+                self._ui(lambda: show_toast(
+                    self, "🎟️  Quinielas",
+                    "Ningún boleto nuevo pudo verificarse aún (faltan resultados "
+                    "o son de ligas no cubiertas por ESPN).",
+                    kind="info", duration_ms=7000))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    # ── Auto-liquidación de combinadas ─────────────────────────────────────────
+
+    def _start_combo_autosettle(self) -> None:
+        """Lanza la auto-liquidación de combinadas en un hilo (no bloquea la UI)."""
+        import threading
+        threading.Thread(target=self._combo_autosettle_worker, daemon=True).start()
+
+    def _combo_autosettle_worker(self) -> None:
+        """Liquida las combinadas PENDING con resultados ya disponibles (hilo 2º)."""
+        try:
+            from .core.combo_settler import auto_settle_combos
+            settled = auto_settle_combos(self.storage).get("settled", [])
+            if settled:
+                self._ui(lambda s=settled: self._on_combos_settled(s))
+        except Exception as exc:
+            logger.warning("Auto-liquidación combinadas: %s", exc)
+
+    def _on_combos_settled(self, settled: list) -> None:
+        """Refresca Portfolio, avisa por toast y envía a Telegram (hilo principal)."""
+        # Refrescar historial + Portfolio
+        try:
+            self.history = self.storage.load_combos()
+            self._refresh_portfolio()
+        except Exception:
+            pass
+        # Toast por cada combinada liquidada
+        try:
+            from .ui.toast import show_toast
+            for s in settled:
+                won    = s.get("outcome") == "WIN"
+                profit = float(s.get("profit", 0) or 0)
+                show_toast(
+                    self,
+                    f"🎯  Combinada {'GANADA' if won else 'perdida'}",
+                    f"{s.get('n_legs', '?')} selecciones · @ {float(s.get('odds', 0)):.2f} · "
+                    f"{profit:+.2f}",
+                    kind="success" if won else "warning",
+                    duration_ms=8000,
+                )
+        except Exception:
+            pass
+        # Telegram (solo si está activado)
+        try:
+            if self.telegram_enabled.get():
+                self.send_telegram_text(self._format_combos_settled_tg(settled))
+        except Exception as exc:
+            logger.warning("Telegram combinadas: %s", exc)
+
+    @staticmethod
+    def _format_combos_settled_tg(settled: list) -> str:
+        wins   = sum(1 for s in settled if s.get("outcome") == "WIN")
+        losses = len(settled) - wins
+        pnl    = sum(float(s.get("profit", 0) or 0) for s in settled)
+        lines  = [
+            f"🎯 <b>Combinadas liquidadas</b> ({len(settled)})",
+            f"✅ {wins} ganadas · ❌ {losses} perdidas · P/L <b>{pnl:+.2f}</b>",
+            "",
+        ]
+        for s in settled:
+            emoji = "✅" if s.get("outcome") == "WIN" else "❌"
+            lines.append(
+                f"{emoji} {s.get('n_legs', '?')} sel. @ {float(s.get('odds', 0)):.2f}  "
+                f"({float(s.get('profit', 0) or 0):+.2f})")
+        return "\n".join(lines)
+
+    def _on_audit_done(self, result) -> None:
+        """Actualiza la UI con el resultado de la auditoría (hilo principal)."""
+        self._last_audit_result = result
+
+        # ── Badge en el botón de Performance ──────────────────────────────────
+        perf_btn = self._nav_btns.get("performance")
+        if perf_btn:
+            if result.has_critical:
+                badge_text = "📈  Performance  🔴"
+                badge_color = "#7f1d1d"
+            elif any("🟡" in a for a in result.alerts):
+                badge_text = "📈  Performance  🟡"
+                badge_color = "#451a03"
+            else:
+                badge_text = "📈  Performance"
+                badge_color = "#060f1e"
+            # Solo cambiar borde si no está activo
+            current_fg = perf_btn.cget("fg_color")
+            if current_fg != "#0e3a50":   # no activo
+                perf_btn.configure(text=badge_text, border_color=badge_color)
+            else:
+                perf_btn.configure(text=badge_text)
+
+        # ── Status bar ────────────────────────────────────────────────────────
+        if result.picks_settled or result.alerts:
+            self._set_status(f"🔍 Auditoría [{result.timestamp}]: {result.summary}")
+
+        # ── Refrescar Performance view si está visible ─────────────────────────
+        try:
+            if hasattr(self, "performance_view"):
+                self.performance_view.refresh()
+        except Exception:
+            pass
+
+        # ── Notificación Telegram si hay alertas críticas o amarillas ─────────
+        try:
+            if (result.alerts and self.telegram_enabled.get()
+                    and self.storage.get_setting("audit_telegram", "0") == "1"):
+                from .core.auto_audit import format_telegram_message
+                msg = format_telegram_message(result)
+                self.send_telegram_text(msg)
+        except Exception as exc:
+            logger.debug("Audit telegram error: %s", exc)
 
     # ── Telegram (envío directo) ───────────────────────────────────────────────
 
