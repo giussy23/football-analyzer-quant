@@ -193,6 +193,15 @@ class PremiumApp(ctk.CTk):
         self._wake_last: float = 0.0
         self.after(2000, self._start_wake_watchdog)
 
+        # Pausa de animaciones también al perder el foco >60 s (ventana tapada
+        # por otras apps sin minimizar) — el <Unmap> solo cubre minimizar.
+        self._unfocused_since: Optional[float] = None
+        self.bind("<FocusIn>", self._on_focus_in)
+
+        # Detector de bloqueos de UI: si el hilo principal se congela >3 s
+        # ("No responde"), vuelca su stack a ui_stalls.log para diagnóstico.
+        self.after(3000, self._start_stall_watchdog)
+
     def _try_maximize(self) -> None:
         """Maximiza la ventana en Windows; en otros OS la deja al tamaño calculado."""
         try:
@@ -240,7 +249,8 @@ class PremiumApp(ctk.CTk):
 
     def _wake_tick(self) -> None:
         """Detecta un salto grande de tiempo (el PC estuvo en reposo) y, si lo
-        hay, hace una recuperación suave del repintado."""
+        hay, hace una recuperación suave del repintado. También pausa las
+        animaciones si la app lleva >60 s sin foco (tapada en segundo plano)."""
         import time
         now = time.time()
         gap = now - getattr(self, "_wake_last", now)
@@ -248,10 +258,93 @@ class PremiumApp(ctk.CTk):
         # Gap mucho mayor que el intervalo del tick → el proceso estuvo congelado
         if gap > 5.0:
             self._on_system_wake()
+
+        # ── Pausa por pérdida de foco prolongada ──────────────────────────────
+        # Las animaciones a 60 fps no aportan nada con la ventana tapada y
+        # mantienen el proceso "ocupado" para Windows.
+        try:
+            focused = self.focus_get() is not None
+        except Exception:
+            focused = True   # menús/diálogos pueden hacer fallar focus_get
+        if focused:
+            self._unfocused_since = None
+        elif self._unfocused_since is None:
+            self._unfocused_since = now
+        elif (now - self._unfocused_since) > 60 and not self._animations_paused:
+            logger.debug("App >60 s sin foco — animaciones pausadas")
+            self._animations_paused = True
+
         try:
             self.after(1500, self._wake_tick)
         except Exception:
             logger.debug("Excepción ignorada", exc_info=True)
+
+    def _on_focus_in(self, event=None) -> None:
+        """Reanuda las animaciones al recuperar el foco (ver _wake_tick)."""
+        if event and event.widget is not self:
+            return          # evento de un widget hijo, ignorar
+        self._unfocused_since = None
+        if self._animations_paused:
+            self._animations_paused = False
+            self.after(10, self.update_idletasks)
+
+    def _start_stall_watchdog(self) -> None:
+        """Detector de bloqueos del hilo de UI ("No responde").
+
+        Un latido after(500) actualiza un timestamp desde el hilo principal.
+        Un hilo vigilante comprueba cada 2 s: si el latido lleva >3 s parado,
+        el hilo principal está bloqueado — vuelca su stack a ui_stalls.log
+        para identificar al culpable exacto.
+
+        Falso positivo evitado: si el vigilante MISMO durmió de más, el
+        proceso entero estuvo suspendido (reposo de Windows) — eso no es un
+        bloqueo de UI y se ignora.
+        """
+        import os as _os
+        import sys
+        import time as _t
+        import traceback as _tb
+        from .core.config import DATA_DIR
+
+        self._ui_heartbeat: float = _t.time()
+
+        def _beat() -> None:
+            self._ui_heartbeat = _t.time()
+            try:
+                self.after(500, _beat)
+            except Exception:
+                logger.debug("Excepción ignorada", exc_info=True)
+        _beat()
+
+        main_ident = threading.main_thread().ident
+        log_path   = _os.path.join(DATA_DIR, "ui_stalls.log")
+
+        def _watch() -> None:
+            while True:
+                t0 = _t.time()
+                _t.sleep(2.0)
+                if (_t.time() - t0) > 4.0:
+                    continue   # el proceso entero estuvo suspendido — no es bloqueo de UI
+                gap = _t.time() - self._ui_heartbeat
+                if gap < 3.0:
+                    continue
+                frame = sys._current_frames().get(main_ident)
+                stack = "".join(_tb.format_stack(frame)) if frame else "(sin stack disponible)"
+                entry = (
+                    f"[{_t.strftime('%Y-%m-%d %H:%M:%S')}] UI bloqueada {gap:.1f}s — "
+                    f"stack del hilo principal:\n{stack}{'=' * 72}\n"
+                )
+                logger.warning("UI bloqueada %.1f s — volcado en %s", gap, log_path)
+                try:
+                    with open(log_path, "a", encoding="utf-8") as fh:
+                        fh.write(entry)
+                except Exception:
+                    logger.debug("Excepción ignorada", exc_info=True)
+                # Esperar a que la UI se recupere antes de seguir vigilando
+                while (_t.time() - self._ui_heartbeat) > 3.0:
+                    _t.sleep(2.0)
+
+        threading.Thread(target=_watch, daemon=True, name="ui-stall-watchdog").start()
 
     def _on_system_wake(self) -> None:
         """Da un respiro al despertar: pausa animaciones, repinta limpio y las
