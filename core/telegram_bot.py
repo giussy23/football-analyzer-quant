@@ -187,7 +187,7 @@ class TelegramBot:
             try:
                 self._status_cb(msg)
             except Exception:
-                pass
+                logger.debug("Excepción ignorada", exc_info=True)
 
     # ── Control ───────────────────────────────────────────────────────────────
 
@@ -416,10 +416,31 @@ class TelegramBot:
 
     # ── Dispatcher ────────────────────────────────────────────────────────────
 
+    def _authorized(self, chat_id) -> bool:
+        """Whitelist: solo el/los chat_id configurados en Settings pueden usar el bot.
+
+        Si telegram_chat_id está vacío (setup inicial) se permite todo, para que
+        el usuario pueda descubrir su chat_id con /ping antes de configurarlo.
+        Acepta varios ids separados por coma (p.ej. privado + grupo).
+        """
+        if self._storage is None:
+            return True
+        allowed = str(self._storage.get_setting("telegram_chat_id", "")).strip()
+        if not allowed:
+            return True
+        allowed_ids = {a.strip() for a in allowed.split(",") if a.strip()}
+        if str(chat_id) in allowed_ids:
+            return True
+        logger.warning("Telegram: comando rechazado de chat_id no autorizado: %s", chat_id)
+        return False
+
     def _dispatch(self, upd: dict) -> None:
         # ── Botones inline (callback_query) ───────────────────────────────────
         cbq = upd.get("callback_query")
         if cbq:
+            cbq_chat = (cbq.get("message") or {}).get("chat", {}).get("id")
+            if not self._authorized(cbq_chat):
+                return
             self._handle_callback(cbq)
             return
 
@@ -429,6 +450,9 @@ class TelegramBot:
         chat_type = msg.get("chat", {}).get("type", "private")  # private/group/supergroup
 
         if not chat_id or not raw_txt.startswith("/"):
+            return
+
+        if not self._authorized(chat_id):
             return
 
         # ── Extraer el comando y destinatario ─────────────────────────────────
