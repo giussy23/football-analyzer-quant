@@ -123,6 +123,20 @@ class Storage:
                     aciertos    INTEGER DEFAULT NULL
                 )
             """)
+            # ── Caché persistente de respuestas IA (Claude) ───────────────────
+            # Evita repagar llamadas API al reiniciar la app: el enricher y los
+            # análisis narrativos se guardan aquí con timestamp y caducan por TTL.
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS ai_cache (
+                    cache_key  TEXT PRIMARY KEY,
+                    payload    TEXT,
+                    updated_at TEXT
+                )
+            """)
+            # Limpieza: entradas de más de 7 días ya no sirven para nada
+            con.execute(
+                "DELETE FROM ai_cache WHERE updated_at < datetime('now', '-7 days')"
+            )
             # ── Betfair Exchange — registro de apuestas colocadas ─────────────
             con.execute("""
                 CREATE TABLE IF NOT EXISTS betfair_bets (
@@ -170,6 +184,36 @@ class Storage:
         with self._connect() as con:
             rows = con.execute("SELECT key, value FROM settings").fetchall()
         return dict(rows)
+
+    # ── Caché IA (Claude) ──────────────────────────────────────────────────────
+
+    def get_ai_cache(self, key: str, max_age_hours: float = 12.0) -> str | None:
+        """Devuelve el payload cacheado si existe y no ha caducado, o None."""
+        with self._connect() as con:
+            row = con.execute(
+                """
+                SELECT payload FROM ai_cache
+                WHERE cache_key = ?
+                  AND updated_at >= datetime('now', ?)
+                """,
+                (key, f"-{max_age_hours} hours"),
+            ).fetchone()
+        return row[0] if row else None
+
+    def set_ai_cache(self, key: str, payload: str) -> None:
+        """Guarda (o reemplaza) una respuesta IA con timestamp actual (UTC)."""
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO ai_cache(cache_key, payload, updated_at)
+                VALUES(?, ?, datetime('now'))
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    payload    = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (key, payload),
+            )
+            con.commit()
 
     # ── Combo history ──────────────────────────────────────────────────────────
 

@@ -6,6 +6,7 @@ app.py — Clase principal PremiumApp: orquesta vistas, lógica y datos.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
@@ -1346,6 +1347,7 @@ class PremiumApp(ctk.CTk):
                 analyzer = Analyzer(
                     hist, fixtures,
                     claude_api_key=self.storage.get_setting("anthropic_api_key", ""),
+                    storage=self.storage,   # caché IA persistente entre reinicios
                 )
 
                 def _on_progress(msg: str) -> None:
@@ -1653,11 +1655,17 @@ class PremiumApp(ctk.CTk):
 
         # ── Picks con modelo ML ───────────────────────────────────────────────
         for _, row in verde.iterrows():
-            text = generate_pick_analysis(row.to_dict(), api_key)
-            if not text:
-                continue
             home = str(row["home_team"])
             away = str(row["away_team"])
+            # Caché persistente 12h: no repagar el análisis al reiniciar la app
+            _ck  = f"analysis|{home}|{away}|{row.get('pick', '')}"
+            text = self.storage.get_ai_cache(_ck, max_age_hours=12.0)
+            if text is None:
+                text = generate_pick_analysis(row.to_dict(), api_key)
+                if text:
+                    self.storage.set_ai_cache(_ck, text)
+            if not text:
+                continue
             mask = (self.results["home_team"] == home) & (self.results["away_team"] == away)
             self.results.loc[mask, "analysis"] = text
             key  = f"{home}::{away}"
@@ -1667,12 +1675,28 @@ class PremiumApp(ctk.CTk):
         # ── Partidos sin modelo — tipster profesional ─────────────────────────
         claude_updated = False
         for _, row in grey.iterrows():
-            result = generate_tipster_analysis(row.to_dict(), api_key)
+            home = str(row["home_team"])
+            away = str(row["away_team"])
+            # Caché persistente 12h (el tipster devuelve pick+texto → JSON)
+            _ck    = f"tipster|{home}|{away}"
+            result = None
+            _cached = self.storage.get_ai_cache(_ck, max_age_hours=12.0)
+            if _cached:
+                try:
+                    _d = json.loads(_cached)
+                    result = (_d["pick"], _d["text"])
+                except Exception:
+                    logger.debug("Caché tipster corrupta para %s", _ck)
+            if result is None:
+                result = generate_tipster_analysis(row.to_dict(), api_key)
+                if result:
+                    self.storage.set_ai_cache(
+                        _ck, json.dumps({"pick": result[0], "text": result[1]},
+                                        ensure_ascii=False)
+                    )
             if not result:
                 continue
             pick_rec, text = result
-            home = str(row["home_team"])
-            away = str(row["away_team"])
 
             # Calcular odds y prob implícita para el pick de Claude
             try:

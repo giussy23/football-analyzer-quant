@@ -606,6 +606,7 @@ class Analyzer:
         hist_by_div:    dict[str, pd.DataFrame],
         fixtures_df:    pd.DataFrame,
         claude_api_key: str = "",
+        storage=None,
     ) -> None:
         self.hist_by_div = {k: prepare_historic(v) for k, v in hist_by_div.items()}
         self.fixtures    = prepare_fixtures(fixtures_df)
@@ -616,10 +617,11 @@ class Analyzer:
         self.backtest_summary: dict      = {}
         self.drift_info:       dict | None = None
 
-        # Claude feature enricher (opcional — activo solo si hay API key)
+        # Claude feature enricher (opcional — activo solo si hay API key).
+        # storage → caché persistente: no se repagan llamadas al reiniciar la app.
         from .claude_enricher import ClaudeFeatureEnricher
         self.claude_enricher: Optional[ClaudeFeatureEnricher] = (
-            ClaudeFeatureEnricher(claude_api_key)
+            ClaudeFeatureEnricher(claude_api_key, storage=storage)
             if claude_api_key and claude_api_key.startswith("sk-ant-")
             else None
         )

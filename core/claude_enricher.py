@@ -56,8 +56,9 @@ class ClaudeFeatureEnricher:
         2. adjust_probabilities(ph, pd, pa, pov, feats) → ajuste suave de probs
     """
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, storage=None) -> None:
         self._api_key = api_key
+        self._storage = storage   # Storage opcional → caché persistente entre reinicios
         self._cache:   dict[str, dict[str, float]] = {}
         self.n_calls:  int = 0
         self.n_errors: int = 0
@@ -81,8 +82,31 @@ class ClaudeFeatureEnricher:
             self.n_cached += 1
             return self._cache[key]
 
+        # ── Caché persistente (BD): sobrevive reinicios de la app ─────────────
+        # TTL 12h — las noticias de lesiones cambian; el mismo día no se repaga.
+        if self._storage is not None:
+            try:
+                raw = self._storage.get_ai_cache(f"enrich|{key}", max_age_hours=12.0)
+                if raw:
+                    parsed = json.loads(raw)
+                    result = {
+                        k: float(parsed[k]) for k in _CLAUDE_FEATURES if k in parsed
+                    }
+                    if len(result) == len(_CLAUDE_FEATURES):
+                        self.n_cached += 1
+                        self._cache[key] = result
+                        return result
+            except Exception as exc:
+                logger.debug("ClaudeEnricher caché BD [%s]: %s", key, exc)
+
         try:
             result = self._call_api(home_team, away_team, league, existing_feats or {})
+            # Persistir solo éxitos — los fallos deben reintentar en el próximo run
+            if self._storage is not None:
+                try:
+                    self._storage.set_ai_cache(f"enrich|{key}", json.dumps(result))
+                except Exception as exc:
+                    logger.debug("ClaudeEnricher caché BD write [%s]: %s", key, exc)
         except Exception as exc:
             logger.debug("ClaudeEnricher [%s vs %s]: %s", home_team, away_team, exc)
             self.n_errors += 1
@@ -270,9 +294,11 @@ class ClaudeFeatureEnricher:
             except anthropic.NotFoundError:
                 continue
 
+        # Los fallos LANZAN excepción (no devuelven neutro) para que enrich()
+        # los cuente como error y NO los persista en el caché de disco.
         if raw is None:
             logger.warning("ClaudeEnricher: ningún modelo disponible")
-            return dict(_NEUTRAL)
+            raise RuntimeError("ningún modelo Claude disponible")
 
         # Parsear JSON
         try:
@@ -286,9 +312,9 @@ class ClaudeFeatureEnricher:
                     parsed = json.loads(raw[start:end])
                 except Exception:
                     logger.debug("ClaudeEnricher: JSON parse fallido | raw=%r", raw[:120])
-                    return dict(_NEUTRAL)
+                    raise ValueError("respuesta de Claude no es JSON válido")
             else:
-                return dict(_NEUTRAL)
+                raise ValueError("respuesta de Claude sin JSON")
 
         result: dict[str, float] = {}
         for k in _CLAUDE_FEATURES:
