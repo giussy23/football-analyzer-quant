@@ -59,8 +59,23 @@ def main() -> None:
     except Exception as exc:
         print("   (Club ELO no disponible:", exc, ")")
 
+    xg_hist_by_div: dict = {}
+    try:
+        from football_analyzer.core.understat import fetch_league_xg, current_season
+        prev = current_season() - 1
+        for div in hist_by_div:
+            try:
+                xg = fetch_league_xg(div, prev)
+                if xg:
+                    xg_hist_by_div[div] = xg
+            except Exception:
+                pass
+        print(f"   xG Understat: {len(xg_hist_by_div)} ligas")
+    except Exception as exc:
+        print("   (Understat no disponible:", exc, ")")
+
     print("2/4 Construyendo dataset de features...")
-    df = build_training_frame(hist_by_div, club_elo=club_elo)
+    df = build_training_frame(hist_by_div, club_elo=club_elo, xg_hist_by_div=xg_hist_by_div)
     df = df.dropna(subset=["result", "over25", "total_goals", "date"])
     df = df.sort_values("date").reset_index(drop=True)
 

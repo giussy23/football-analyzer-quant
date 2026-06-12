@@ -36,6 +36,26 @@ _HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     )
 }
+
+# Nombres de football-data.co.uk → nombres de Understat. Imprescindible donde
+# el fuzzy matching falla o, peor, casa con el equipo EQUIVOCADO
+# (ej.: "Paris SG" casaba con "Paris FC" en vez de "Paris Saint Germain").
+_FD_ALIASES: dict[str, str] = {
+    "Wolves":        "Wolverhampton Wanderers",
+    "Ath Bilbao":    "Athletic Club",
+    "Ath Madrid":    "Atletico Madrid",
+    "Parma":         "Parma Calcio 1913",
+    "M'gladbach":    "Borussia M.Gladbach",
+    "Paris SG":      "Paris Saint Germain",
+    "FC Koln":       "FC Cologne",
+    "Hamburg":       "Hamburger SV",
+    "Leverkusen":    "Bayer Leverkusen",
+    "RB Leipzig":    "RasenBallsport Leipzig",
+    "Ein Frankfurt": "Eintracht Frankfurt",
+    "Milan":         "AC Milan",
+    "Newcastle":     "Newcastle United",
+    "St Etienne":    "Saint-Etienne",
+}
 _CACHE_TTL = 6 * 3600  # refrescar cada 6 horas
 
 _memory_cache: dict[tuple, dict] = {}
@@ -68,27 +88,20 @@ def fetch_league_xg(div: str, season: Optional[int] = None) -> dict[str, dict]:
     if key in _memory_cache and (now - _cache_ts.get(key, 0)) < _CACHE_TTL:
         return _memory_cache[key]
 
-    url = f"https://understat.com/league/{league}/{season}"
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=25)
-        resp.raise_for_status()
-    except Exception as exc:
-        logger.warning("Understat no disponible para %s/%d: %s", div, season, exc)
-        return {}
-
-    pattern = re.compile(r"teamsData\s*=\s*JSON\.parse\('(.+?)'\)", re.DOTALL)
-    m = pattern.search(resp.text)
-    if not m:
-        logger.warning("teamsData no encontrado en Understat %s/%d", div, season)
-        return {}
-
-    raw = m.group(1)
-    teams_data = _decode_understat_json(raw)
+    teams_data = _fetch_teams_json(league, season)
     if teams_data is None:
+        # Fallback: formato antiguo con teamsData embebido en el HTML
+        teams_data = _fetch_teams_html(league, season)
+    if teams_data is None:
+        logger.warning("Understat no disponible para %s/%d", div, season)
         return {}
 
     result: dict[str, dict] = {}
-    for team_name, info in teams_data.items():
+    for team_key, info in teams_data.items():
+        if not isinstance(info, dict):
+            continue
+        # Las claves son IDs numéricos; el nombre real viene en "title"
+        team_name = str(info.get("title") or team_key)
         history = info.get("history", [])
         if not history:
             continue
@@ -111,6 +124,44 @@ def fetch_league_xg(div: str, season: Optional[int] = None) -> dict[str, dict]:
     return result
 
 
+def _fetch_teams_json(league: str, season: int) -> Optional[dict]:
+    """Endpoint JSON de Understat (formato desde dic 2025).
+
+    GET /getLeagueData/{league}/{season} → {"teams": {...}, "players": ..., "dates": ...}
+    (es el mismo endpoint que usa su propio frontend en js/league.min.js).
+    """
+    url = f"https://understat.com/getLeagueData/{league}/{season}"
+    try:
+        resp = requests.get(
+            url,
+            headers={**_HEADERS, "X-Requested-With": "XMLHttpRequest"},
+            timeout=25,
+        )
+        resp.raise_for_status()
+        teams = (resp.json() or {}).get("teams")
+        return teams if isinstance(teams, dict) and teams else None
+    except Exception as exc:
+        logger.debug("Understat getLeagueData %s/%d falló: %s", league, season, exc)
+        return None
+
+
+def _fetch_teams_html(league: str, season: int) -> Optional[dict]:
+    """Formato antiguo: teamsData embebido como JSON.parse('...') en el HTML."""
+    url = f"https://understat.com/league/{league}/{season}"
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=25)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.debug("Understat HTML %s/%d falló: %s", league, season, exc)
+        return None
+
+    m = re.search(r"teamsData\s*=\s*JSON\.parse\('(.+?)'\)", resp.text, re.DOTALL)
+    if not m:
+        logger.debug("teamsData no encontrado en HTML de Understat %s/%d", league, season)
+        return None
+    return _decode_understat_json(m.group(1))
+
+
 def get_team_xg(team: str, league_xg: dict[str, dict], cutoff: float = 0.6) -> Optional[dict]:
     """
     Busca las stats de xG de un equipo con fuzzy matching.
@@ -120,6 +171,11 @@ def get_team_xg(team: str, league_xg: dict[str, dict], cutoff: float = 0.6) -> O
         return None
     if team in league_xg:
         return league_xg[team]
+
+    # Alias explícito (evita matches erróneos del fuzzy: Paris SG ≠ Paris FC)
+    alias = _FD_ALIASES.get(team)
+    if alias and alias in league_xg:
+        return league_xg[alias]
 
     candidates = list(league_xg.keys())
     hits = get_close_matches(team, candidates, n=1, cutoff=cutoff)
