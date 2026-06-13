@@ -714,19 +714,24 @@ class PremiumApp(ctk.CTk):
             return False
 
     def _render_header_banner(self) -> None:
-        """(Re)dibuja el banner hero del header con el glow del tema activo.
+        """(Re)dibuja el banner hero del header con las cortinas del tema activo.
 
-        Usa el mismo generador que el fondo de aurora (glows gaussianos con la
-        paleta del tema) en formato franja ancha y corta. Funciona con todos
-        los temas — cada uno luce su propio acento."""
+        Genera la imagen al ANCHO REAL del canvas (no al de pantalla) para que
+        cubra todo el banner y se desvanezca suave en los bordes — antes, con
+        la ventana maximizada o un monitor ancho, el canvas era más ancho que
+        la imagen y el banner se cortaba en seco a la derecha."""
         c = getattr(self, "_header_canvas", None)
         if c is None or not c.winfo_exists():
             return
         from .core.themes import get_current_theme
         t  = get_current_theme()
-        sw = self.winfo_screenwidth()
+        # Ancho real del canvas; en el primer render aún no está mapeado → usar
+        # el ancho de pantalla como aproximación (el <Configure> lo corregirá).
+        cw = c.winfo_width()
+        w  = cw if cw > 1 else self.winfo_screenwidth()
+        self._header_last_w = w
         # Banner más vibrante que el fondo de pantalla (glow ×1.8)
-        photo = self._make_aurora_image(sw, self._header_h, t, intensity=1.8)
+        photo = self._make_aurora_image(w, self._header_h, t, intensity=1.8)
         c.configure(bg=t["bg"])
         if photo is not None:
             self._header_photo = photo   # mantener referencia viva
@@ -734,6 +739,24 @@ class PremiumApp(ctk.CTk):
         c.itemconfig(self._header_title_item, fill=t["text"])
         c.itemconfig(self._header_hint_item,  fill=t["accent"])
         c.itemconfig(self._header_rule_item,  fill=t["border"])
+
+    def _on_header_resize(self, event=None) -> None:
+        """Regenera el banner cuando el header cambia de ancho (maximizar,
+        redimensionar). Con debounce: solo tras ~180 ms de quietud y solo si
+        el ancho cambió de verdad — evita regenerar la imagen en cada píxel.
+        Es seguro: solo toca el canvas del header, no la geometría de ventanas
+        (a diferencia del overlay que colgó la app)."""
+        c = getattr(self, "_header_canvas", None)
+        if c is None or not c.winfo_exists():
+            return
+        if abs(c.winfo_width() - getattr(self, "_header_last_w", 0)) < 8:
+            return   # cambio insignificante (p.ej. solo cambió el alto)
+        if getattr(self, "_header_resize_after", None):
+            try:
+                self.after_cancel(self._header_resize_after)
+            except Exception:
+                logger.debug("Excepción ignorada", exc_info=True)
+        self._header_resize_after = self.after(180, self._render_header_banner)
 
     def _set_header_text(self, title: str, hint: str) -> None:
         """Actualiza el título y el subtítulo dibujados sobre el banner hero."""
@@ -1094,9 +1117,14 @@ class PremiumApp(ctk.CTk):
             font=("Segoe UI", 12), fill="#4ade80",
         )
         self._header_rule_item = header.create_line(
-            0, HDR_H - 1, 2000, HDR_H - 1, fill="#1a5c2a",
+            0, HDR_H - 1, 4000, HDR_H - 1, fill="#1a5c2a",
         )
+        self._header_resize_after = None
+        self._header_last_w = 0
+        header.bind("<Configure>", self._on_header_resize, add="+")
         self._render_header_banner()
+        # Re-render una vez que el canvas tiene su ancho real (tras el layout)
+        self.after(120, self._render_header_banner)
 
         # ── Ticker de picks (flotando bajo el header) ─────────────────────────
         self._build_ticker(stage)   # ocupa row=1
