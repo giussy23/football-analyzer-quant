@@ -110,7 +110,7 @@ class PerformanceView(ctk.CTkScrollableFrame):
             val_lbl.pack(pady=2)
             ctk.CTkLabel(card, textvariable=sub_var, text_color=MUTED,
                          font=ctk.CTkFont(size=10)).pack(pady=(0, 8))
-            self._kpi_cards[key] = (val_var, sub_var, val_lbl)
+            self._kpi_cards[key] = (val_var, sub_var, val_lbl, card)
 
         # ── Tarjetas KPI — fila 2 (Sharpe, Max Drawdown, Racha) ──────────────
         kpi_row2 = ctk.CTkFrame(self, fg_color="transparent")
@@ -135,7 +135,7 @@ class PerformanceView(ctk.CTkScrollableFrame):
             val_lbl.pack(pady=2)
             ctk.CTkLabel(card, textvariable=sub_var, text_color=MUTED,
                          font=ctk.CTkFont(size=10)).pack(pady=(0, 8))
-            self._kpi_cards[key] = (val_var, sub_var, val_lbl)
+            self._kpi_cards[key] = (val_var, sub_var, val_lbl, card)
 
         # ── Equity curve ──────────────────────────────────────────────────────
         eq_frame = ctk.CTkFrame(self, fg_color=_CARD_BG, corner_radius=12,
@@ -329,18 +329,28 @@ class PerformanceView(ctk.CTkScrollableFrame):
             entry[1].set(sub_str)
             if len(entry) > 2:
                 entry[2].configure(text_color=color)
+            # Borde de color de la card según el estado semántico (verde/amarillo/
+            # rojo) → "vida" de un vistazo; neutro vuelve al borde normal.
+            if len(entry) > 3:
+                if color in (_GREEN, _YELLOW, _RED):
+                    entry[3].configure(border_color=color, border_width=2)
+                else:
+                    entry[3].configure(border_color=BORDER, border_width=1)
 
         _set("picks",    str(total),
              f"{wins}W / {losses}L / {total - settled}P")
+        wr_col = (_GREEN if win_rate >= 0.5 else _RED) if win_rate is not None else ACCENT
         _set("win_rate", f"{win_rate*100:.1f}%" if win_rate is not None else "—",
-             f"de {settled} liquidados")
+             f"de {settled} liquidados", wr_col)
         roi_col = _color_roi(roi) if roi is not None else MUTED
         _set("roi",      _pct(roi) if roi is not None else "—",
              "calculado sobre stakes", roi_col)
+        clv_col = (_GREEN if avg_clv > 0 else _RED) if avg_clv is not None else MUTED
         _set("avg_clv",  _pct(avg_clv) if avg_clv is not None else "—",
-             f"n={len(clv_vals)}" if clv_vals else "sin datos")
+             f"n={len(clv_vals)}" if clv_vals else "sin datos", clv_col)
+        edge_col = (_GREEN if avg_edge > 0 else _RED) if avg_edge is not None else MUTED
         _set("avg_edge", _pct(avg_edge) if avg_edge is not None else "—",
-             f"n={len(edge_vals)}" if edge_vals else "")
+             f"n={len(edge_vals)}" if edge_vals else "", edge_col)
 
         # ── KPIs avanzados: Sharpe, Max Drawdown, Racha ───────────────────────
         stats = self._compute_advanced_stats()
@@ -371,6 +381,21 @@ class PerformanceView(ctk.CTkScrollableFrame):
 
     # ── Curva de equity ───────────────────────────────────────────────────────
 
+    def _draw_empty_state(self, canvas, icon: str, title: str, subtitle: str = "") -> None:
+        """Estado vacío elegante: icono grande + título + subtítulo centrados,
+        en vez de una caja vacía con una sola línea de texto."""
+        canvas.delete("all")
+        W = canvas.winfo_width()
+        H = canvas.winfo_height() or 200
+        cx, cy = W // 2, H // 2
+        canvas.create_text(cx, cy - 24, text=icon,
+                           font=("Segoe UI Emoji", 30), fill=MUTED)
+        canvas.create_text(cx, cy + 14, text=title,
+                           font=("Segoe UI Semibold", 13), fill=ACCENT)
+        if subtitle:
+            canvas.create_text(cx, cy + 36, text=subtitle,
+                               font=("Segoe UI", 10), fill=MUTED)
+
     def _draw_calibration(self) -> None:
         """Reliability diagram: probabilidad predicha (x) vs frecuencia real (y).
         La diagonal es la calibración perfecta; cada punto es un intervalo de
@@ -389,9 +414,9 @@ class PerformanceView(ctk.CTkScrollableFrame):
 
         if brier is None or not bins:
             self._cal_info.set("")
-            c.create_text(W // 2, H // 2,
-                          text="Sin picks liquidados para calibrar",
-                          fill=MUTED, font=("Segoe UI", 11))
+            self._draw_empty_state(
+                c, "🎯", "Aún no hay datos de calibración",
+                "Liquida algunos picks para ver el diagrama de fiabilidad")
             return
 
         from ...core.prob_calibrator import MIN_SAMPLES
@@ -463,8 +488,9 @@ class PerformanceView(ctk.CTkScrollableFrame):
         )
 
         if len(settled) < 2:
-            c.create_text(W // 2, H // 2, text="Sin suficientes picks liquidados",
-                          fill=MUTED, font=("Segoe UI", 11))
+            self._draw_empty_state(
+                c, "📈", "Tu curva de equity aparecerá aquí",
+                "Ejecuta Run Analysis y liquida picks para construirla")
             return
 
         # Calcular curva de P&L acumulado
