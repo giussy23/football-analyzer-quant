@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AlphaBet v15.0 — Logo revolucionario
+  © 2026 Francesco Giuseppe Manolache
+  Archivo: logo_alphabet.svg
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+<defs>
+  <!-- Fondo radial oscuro -->
+  <radialGradient id="bg" cx="38%" cy="35%" r="78%">
+    <stop offset="0%"   stop-color="#0e2016"/>
+    <stop offset="60%"  stop-color="#060e09"/>
+    <stop offset="100%" stop-color="#020604"/>
+  </radialGradient>
+
+  <!-- Gradiente principal azul→verde (símbolo α y texto) -->
+  <linearGradient id="g1" x1="0%" y1="10%" x2="100%" y2="90%">
+    <stop offset="0%"   stop-color="#38bdf8"/>
+    <stop offset="40%"  stop-color="#34d399"/>
+    <stop offset="100%" stop-color="#22c55e"/>
+  </linearGradient>
+
+  <!-- Gradiente inverso (verde→azul) para variedad -->
+  <linearGradient id="g2" x1="100%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   stop-color="#22c55e"/>
+    <stop offset="100%" stop-color="#38bdf8"/>
+  </linearGradient>
+
+  <!-- Gradiente para el anillo exterior -->
+  <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%"   stop-color="#22c55e" stop-opacity="0.95"/>
+    <stop offset="50%"  stop-color="#38bdf8" stop-opacity="0.65"/>
+    <stop offset="100%" stop-color="#22c55e" stop-opacity="0.95"/>
+  </linearGradient>
+
+  <!-- Filtro: destello fuerte (para el símbolo α) -->
+  <filter id="glow-xl" x="-100%" y="-100%" width="300%" height="300%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="b1"/>
+    <feGaussianBlur in="SourceGraphic" stdDeviation="5"  result="b2"/>
+    <feMerge>
+      <feMergeNode in="b1"/>
+      <feMergeNode in="b2"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+
+  <!-- Filtro: destello suave (anillo, diamantes, puntos) -->
+  <filter id="glow-sm" x="-25%" y="-25%" width="150%" height="150%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/>
+    <feMerge>
+      <feMergeNode in="b"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+
+  <!-- Filtro: resplandor del anillo -->
+  <filter id="ring-glow" x="-8%" y="-8%" width="116%" height="116%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/>
+    <feMerge>
+      <feMergeNode in="b"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+
+  <!-- Recorte circular -->
+  <clipPath id="cc"><circle cx="200" cy="200" r="185"/></clipPath>
+</defs>
+
+<!-- ═══ FONDO ═══════════════════════════════════════════════════════════════ -->
+<!-- Halo exterior verde muy suave -->
+<circle cx="200" cy="200" r="197" fill="#22c55e" fill-opacity="0.05"/>
+<!-- Fondo principal -->
+<circle cx="200" cy="200" r="185" fill="url(#bg)"/>
+
+<!-- ═══ PARRILLA HEXAGONAL (referencia al balón de fútbol) ══════════════════ -->
+<g clip-path="url(#cc)" fill="none" stroke="#22c55e" stroke-width="0.9" opacity="0.07">
+  <polygon points="139.0,61.4 129.5,77.9 110.5,77.9 101.0,61.4 110.5,45.0 129.5,45.0"/>
+    <polygon points="179.0,61.4 169.5,77.9 150.5,77.9 141.0,61.4 150.5,45.0 169.5,45.0"/>
+    <polygon points="219.0,61.4 209.5,77.9 190.5,77.9 181.0,61.4 190.5,45.0 209.5,45.0"/>
+    <polygon points="259.0,61.4 249.5,77.9 230.5,77.9 221.0,61.4 230.5,45.0 249.5,45.0"/>
+    <polygon points="299.0,61.4 289.5,77.9 270.5,77.9 261.0,61.4 270.5,45.0 289.5,45.0"/>
+    <polygon points="119.0,96.1 109.5,112.5 90.5,112.5 81.0,96.1 90.5,79.6 109.5,79.6"/>
+    <polygon points="159.0,96.1 149.5,112.5 130.5,112.5 121.0,96.1 130.5,79.6 149.5,79.6"/>
+    <polygon points="199.0,96.1 189.5,112.5 170.5,112.5 161.0,96.1 170.5,79.6 189.5,79.6"/>
+    <polygon points="239.0,96.1 229.5,112.5 210.5,112.5 201.0,96.1 210.5,79.6 229.5,79.6"/>
+    <polygon points="279.0,96.1 269.5,112.5 250.5,112.5 241.0,96.1 250.5,79.6 269.5,79.6"/>
+    <polygon points="319.0,96.1 309.5,112.5 290.5,112.5 281.0,96.1 290.5,79.6 309.5,79.6"/>
+    <polygon points="99.0,130.7 89.5,147.2 70.5,147.2 61.0,130.7 70.5,114.3 89.5,114.3"/>
+    <polygon points="139.0,130.7 129.5,147.2 110.5,147.2 101.0,130.7 110.5,114.3 129.5,114.3"/>
+    <polygon points="179.0,130.7 169.5,147.2 150.5,147.2 141.0,130.7 150.5,114.3 169.5,114.3"/>
+    <polygon points="219.0,130.7 209.5,147.2 190.5,147.2 181.0,130.7 190.5,114.3 209.5,114.3"/>
+    <polygon points="259.0,130.7 249.5,147.2 230.5,147.2 221.0,130.7 230.5,114.3 249.5,114.3"/>
+    <polygon points="299.0,130.7 289.5,147.2 270.5,147.2 261.0,130.7 270.5,114.3 289.5,114.3"/>
+    <polygon points="339.0,130.7 329.5,147.2 310.5,147.2 301.0,130.7 310.5,114.3 329.5,114.3"/>
+    <polygon points="79.0,165.4 69.5,181.8 50.5,181.8 41.0,165.4 50.5,148.9 69.5,148.9"/>
+    <polygon points="119.0,165.4 109.5,181.8 90.5,181.8 81.0,165.4 90.5,148.9 109.5,148.9"/>
+    <polygon points="159.0,165.4 149.5,181.8 130.5,181.8 121.0,165.4 130.5,148.9 149.5,148.9"/>
+    <polygon points="199.0,165.4 189.5,181.8 170.5,181.8 161.0,165.4 170.5,148.9 189.5,148.9"/>
+    <polygon points="239.0,165.4 229.5,181.8 210.5,181.8 201.0,165.4 210.5,148.9 229.5,148.9"/>
+    <polygon points="279.0,165.4 269.5,181.8 250.5,181.8 241.0,165.4 250.5,148.9 269.5,148.9"/>
+    <polygon points="319.0,165.4 309.5,181.8 290.5,181.8 281.0,165.4 290.5,148.9 309.5,148.9"/>
+    <polygon points="359.0,165.4 349.5,181.8 330.5,181.8 321.0,165.4 330.5,148.9 349.5,148.9"/>
+    <polygon points="59.0,200.0 49.5,216.5 30.5,216.5 21.0,200.0 30.5,183.5 49.5,183.5"/>
+    <polygon points="99.0,200.0 89.5,216.5 70.5,216.5 61.0,200.0 70.5,183.5 89.5,183.5"/>
+    <polygon points="139.0,200.0 129.5,216.5 110.5,216.5 101.0,200.0 110.5,183.5 129.5,183.5"/>
+    <polygon points="179.0,200.0 169.5,216.5 150.5,216.5 141.0,200.0 150.5,183.5 169.5,183.5"/>
+    <polygon points="219.0,200.0 209.5,216.5 190.5,216.5 181.0,200.0 190.5,183.5 209.5,183.5"/>
+    <polygon points="259.0,200.0 249.5,216.5 230.5,216.5 221.0,200.0 230.5,183.5 249.5,183.5"/>
+    <polygon points="299.0,200.0 289.5,216.5 270.5,216.5 261.0,200.0 270.5,183.5 289.5,183.5"/>
+    <polygon points="339.0,200.0 329.5,216.5 310.5,216.5 301.0,200.0 310.5,183.5 329.5,183.5"/>
+    <polygon points="379.0,200.0 369.5,216.5 350.5,216.5 341.0,200.0 350.5,183.5 369.5,183.5"/>
+    <polygon points="79.0,234.6 69.5,251.1 50.5,251.1 41.0,234.6 50.5,218.2 69.5,218.2"/>
+    <polygon points="119.0,234.6 109.5,251.1 90.5,251.1 81.0,234.6 90.5,218.2 109.5,218.2"/>
+    <polygon points="159.0,234.6 149.5,251.1 130.5,251.1 121.0,234.6 130.5,218.2 149.5,218.2"/>
+    <polygon points="199.0,234.6 189.5,251.1 170.5,251.1 161.0,234.6 170.5,218.2 189.5,218.2"/>
+    <polygon points="239.0,234.6 229.5,251.1 210.5,251.1 201.0,234.6 210.5,218.2 229.5,218.2"/>
+    <polygon points="279.0,234.6 269.5,251.1 250.5,251.1 241.0,234.6 250.5,218.2 269.5,218.2"/>
+    <polygon points="319.0,234.6 309.5,251.1 290.5,251.1 281.0,234.6 290.5,218.2 309.5,218.2"/>
+    <polygon points="359.0,234.6 349.5,251.1 330.5,251.1 321.0,234.6 330.5,218.2 349.5,218.2"/>
+    <polygon points="99.0,269.3 89.5,285.7 70.5,285.7 61.0,269.3 70.5,252.8 89.5,252.8"/>
+    <polygon points="139.0,269.3 129.5,285.7 110.5,285.7 101.0,269.3 110.5,252.8 129.5,252.8"/>
+    <polygon points="179.0,269.3 169.5,285.7 150.5,285.7 141.0,269.3 150.5,252.8 169.5,252.8"/>
+    <polygon points="219.0,269.3 209.5,285.7 190.5,285.7 181.0,269.3 190.5,252.8 209.5,252.8"/>
+    <polygon points="259.0,269.3 249.5,285.7 230.5,285.7 221.0,269.3 230.5,252.8 249.5,252.8"/>
+    <polygon points="299.0,269.3 289.5,285.7 270.5,285.7 261.0,269.3 270.5,252.8 289.5,252.8"/>
+    <polygon points="339.0,269.3 329.5,285.7 310.5,285.7 301.0,269.3 310.5,252.8 329.5,252.8"/>
+    <polygon points="119.0,303.9 109.5,320.4 90.5,320.4 81.0,303.9 90.5,287.5 109.5,287.5"/>
+    <polygon points="159.0,303.9 149.5,320.4 130.5,320.4 121.0,303.9 130.5,287.5 149.5,287.5"/>
+    <polygon points="199.0,303.9 189.5,320.4 170.5,320.4 161.0,303.9 170.5,287.5 189.5,287.5"/>
+    <polygon points="239.0,303.9 229.5,320.4 210.5,320.4 201.0,303.9 210.5,287.5 229.5,287.5"/>
+    <polygon points="279.0,303.9 269.5,320.4 250.5,320.4 241.0,303.9 250.5,287.5 269.5,287.5"/>
+    <polygon points="319.0,303.9 309.5,320.4 290.5,320.4 281.0,303.9 290.5,287.5 309.5,287.5"/>
+    <polygon points="139.0,338.6 129.5,355.0 110.5,355.0 101.0,338.6 110.5,322.1 129.5,322.1"/>
+    <polygon points="179.0,338.6 169.5,355.0 150.5,355.0 141.0,338.6 150.5,322.1 169.5,322.1"/>
+    <polygon points="219.0,338.6 209.5,355.0 190.5,355.0 181.0,338.6 190.5,322.1 209.5,322.1"/>
+    <polygon points="259.0,338.6 249.5,355.0 230.5,355.0 221.0,338.6 230.5,322.1 249.5,322.1"/>
+    <polygon points="299.0,338.6 289.5,355.0 270.5,355.0 261.0,338.6 270.5,322.1 289.5,322.1"/>
+</g>
+
+<!-- ═══ ELEMENTOS DE PROFUNDIDAD ════════════════════════════════════════════ -->
+<!-- Curva de rendimiento (chart) -->
+<path d="M 52,308 C 90,292 128,272 162,250 S 210,218 232,200 S 278,168 320,146 S 356,130 348,128"
+      fill="none" stroke="#22c55e" stroke-width="1.2" stroke-opacity="0.13"
+      stroke-dasharray="3 9" clip-path="url(#cc)"/>
+
+<!-- Elipse orbital (eje de análisis) -->
+<ellipse cx="200" cy="200" rx="130" ry="40" fill="none"
+         stroke="#38bdf8" stroke-width="0.8" stroke-opacity="0.16"
+         transform="rotate(-20, 200, 200)"/>
+
+<!-- Anillo interior punteado -->
+<circle cx="200" cy="200" r="148" fill="none"
+        stroke="#22c55e" stroke-width="0.7" stroke-opacity="0.18"
+        stroke-dasharray="3 11"/>
+
+<!-- ═══ ANILLO EXTERIOR + MARCAS ════════════════════════════════════════════ -->
+<!-- Anillo principal con resplandor -->
+<circle cx="200" cy="200" r="185" fill="none"
+        stroke="url(#rg)" stroke-width="2.8" filter="url(#ring-glow)"/>
+
+<!-- Marcas principales (N/E/S/O) -->
+<g stroke="#22c55e" stroke-width="2.8" stroke-opacity="0.9" filter="url(#glow-sm)">
+  <line x1="200.0" y1="29.0" x2="200.0" y2="18.0"/>
+  <line x1="371.0" y1="200.0" x2="382.0" y2="200.0"/>
+  <line x1="200.0" y1="371.0" x2="200.0" y2="382.0"/>
+  <line x1="29.0" y1="200.0" x2="18.0" y2="200.0"/>
+</g>
+<!-- Marcas secundarias -->
+<g stroke="#38bdf8" stroke-width="1.2" stroke-opacity="0.28">
+  <line x1="352.4" y1="288.0" x2="357.6" y2="291.0"/>
+  <line x1="288.0" y1="352.4" x2="291.0" y2="357.6"/>
+  <line x1="112.0" y1="352.4" x2="109.0" y2="357.6"/>
+  <line x1="47.6" y1="288.0" x2="42.4" y2="291.0"/>
+  <line x1="47.6" y1="112.0" x2="42.4" y2="109.0"/>
+  <line x1="112.0" y1="47.6" x2="109.0" y2="42.4"/>
+  <line x1="288.0" y1="47.6" x2="291.0" y2="42.4"/>
+  <line x1="352.4" y1="112.0" x2="357.6" y2="109.0"/>
+</g>
+
+<!-- Diamantes cardinales -->
+<g fill="url(#g1)" filter="url(#glow-sm)" opacity="0.95">
+  <polygon points="200.0,10.0 205.0,15.0 200.0,20.0 195.0,15.0"/>
+  <polygon points="385.0,195.0 390.0,200.0 385.0,205.0 380.0,200.0"/>
+  <polygon points="200.0,380.0 205.0,385.0 200.0,390.0 195.0,385.0"/>
+  <polygon points="15.0,195.0 20.0,200.0 15.0,205.0 10.0,200.0"/>
+</g>
+
+<!-- Puntos orbitales -->
+<g fill="#38bdf8" filter="url(#glow-sm)" opacity="0.9">
+  <circle cx="200.0" cy="52.0" r="2.5"/>
+  <circle cx="348.0" cy="200.0" r="2.5"/>
+  <circle cx="200.0" cy="348.0" r="2.5"/>
+  <circle cx="52.0" cy="200.0" r="2.5"/>
+</g>
+<g fill="#34d399" opacity="0.3">
+  <circle cx="328.2" cy="274.0" r="1.2"/>
+  <circle cx="274.0" cy="328.2" r="1.2"/>
+  <circle cx="126.0" cy="328.2" r="1.2"/>
+  <circle cx="71.8" cy="274.0" r="1.2"/>
+  <circle cx="71.8" cy="126.0" r="1.2"/>
+  <circle cx="126.0" cy="71.8" r="1.2"/>
+  <circle cx="274.0" cy="71.8" r="1.2"/>
+  <circle cx="328.2" cy="126.0" r="1.2"/>
+</g>
+
+<!-- ═══ SÍMBOLO α (elemento principal) ════════════════════════════════════ -->
+<!-- Capa de destello exterior (gran blur verde) -->
+<text x="200" y="228"
+      font-family="Georgia, 'Times New Roman', 'Palatino Linotype', serif"
+      font-size="158" font-style="italic" font-weight="bold"
+      fill="#22c55e" fill-opacity="0.18"
+      text-anchor="middle" filter="url(#glow-xl)">α</text>
+
+<!-- Símbolo α principal con gradiente -->
+<text x="200" y="228"
+      font-family="Georgia, 'Times New Roman', 'Palatino Linotype', serif"
+      font-size="158" font-style="italic" font-weight="bold"
+      fill="url(#g1)" text-anchor="middle">α</text>
+
+<!-- ═══ TIPOGRAFÍA ══════════════════════════════════════════════════════════ -->
+<!-- Línea separadora -->
+<line x1="118" y1="270" x2="282" y2="270"
+      stroke="url(#rg)" stroke-width="0.9" stroke-opacity="0.5"/>
+
+<!-- Nombre principal "AlphaBet" -->
+<text x="200" y="297"
+      font-family="'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif"
+      font-size="27" font-weight="700"
+      fill="url(#g1)" text-anchor="middle" letter-spacing="7">AlphaBet</text>
+
+<!-- Subtítulo -->
+<text x="200" y="315"
+      font-family="'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif"
+      font-size="8.5" font-weight="400"
+      fill="#4ade80" fill-opacity="0.52" text-anchor="middle" letter-spacing="3.5">QUANT PRO  ·  v15.0</text>
+
+<!-- Puntos decorativos datos -->
+<g fill="#22c55e" opacity="0.55">
+  <rect x="144" y="327" width="4" height="4" rx="1"/>
+  <rect x="152" y="327" width="4" height="4" rx="1"/>
+  <rect x="160" y="327" width="4" height="4" rx="1"/>
+  <rect x="236" y="327" width="4" height="4" rx="1"/>
+  <rect x="244" y="327" width="4" height="4" rx="1"/>
+  <rect x="252" y="327" width="4" height="4" rx="1"/>
+</g>
+
+<!-- Borde exterior final muy sutil -->
+<circle cx="200" cy="200" r="196" fill="none"
+        stroke="#22c55e" stroke-width="0.4" stroke-opacity="0.25"/>
+</svg>

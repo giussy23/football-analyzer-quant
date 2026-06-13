@@ -1,0 +1,31 @@
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+venv/
+.pytest_cache/
+
+# ── Build / empaquetado (regenerables con pyinstaller) ────────────────────
+build/
+dist/
+installer/Output/
+AlphaBet.exe_extracted/
+
+# ── Datos y artefactos (la BD contiene API keys — NUNCA commitear) ────────
+*.db
+*.joblib
+csv_cache/
+
+# ── Documentación generada (docs/_build_manual.py la regenera) ────────────
+*.pdf
+docs/manual_img/
+
+# ── Local / IDE ───────────────────────────────────────────────────────────
+.claude/
+gen_logo_tmp.py
+installer/*.exe
+
+# Artefactos de runtime SQLite (WAL) y diagnóstico de UI
+*.db-shm
+*.db-wal
+*.db-journal
+ui_stalls.log

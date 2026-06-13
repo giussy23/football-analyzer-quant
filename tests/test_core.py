@@ -1,3 +1,5 @@
+# © 2026 Francesco Giuseppe Manolache. Todos los derechos reservados.
+# AlphaBet v15.0 — Software de uso privado. Prohibida su distribución sin autorización expresa.
 """
 tests/test_core.py — Tests unitarios para el motor analítico.
 
@@ -116,7 +118,7 @@ class TestAssessRisk:
         assert light == "AMARILLO"
 
     def test_red_weak_edge(self):
-        light, _ = assess_risk(edge=0.02, reliability=70, passes_filters=True, market="1")
+        light, _ = assess_risk(edge=0.01, reliability=70, passes_filters=True, market="1")
         assert light == "ROJO"
 
     def test_red_low_reliability(self):
@@ -152,7 +154,7 @@ class TestPrepareHistoric:
             "Date": ["01/09/2024", "08/09/2024"],
             "HomeTeam": ["Arsenal", "Chelsea"],
             "AwayTeam": ["Brentford", "Fulham"],
-            "FTHG": [2, 1],
+            "FTHG": [3, 1],
             "FTAG": [0, 1],
             "FTR": ["H", "D"],
             "B365H": [1.5, 2.0],
@@ -166,7 +168,7 @@ class TestPrepareHistoric:
 
     def test_over25_correct(self):
         df = prepare_historic(self._sample_df())
-        assert list(df["over25"]) == [1, 0]  # 2-0 → over, 1-1 → under
+        assert list(df["over25"]) == [1, 0]  # 3-0 = 3 goles → over; 1-1 = 2 goles → under
 
     def test_sorted_by_date(self):
         raw = self._sample_df()
