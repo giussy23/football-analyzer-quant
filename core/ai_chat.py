@@ -18,6 +18,56 @@ logger = logging.getLogger(__name__)
 # Importar pricing y modelos del módulo hermano
 from .ai_analysis import _MODELS_PREFERRED, _PRICING, _track
 
+_DIAS  = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+_MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+          "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+# Palabras que indican que la pregunta necesita datos FRESCOS (búsqueda web)
+_WEB_TRIGGERS = (
+    "resultado", "resultados", "se jugó", "se jugaron", "jugaron", "ganó", "ganaron",
+    "marcador", "partidos", "partido de hoy", "partido de ayer", "ayer", "hoy",
+    "esta semana", "última", "ultimo", "último", "acaba", "acaban", "reciente",
+    "mundial", "champions", "clasificación", "clasificacion", "lesion", "lesión",
+    "alineación", "alineacion", "fichaje", "noticia", "qué pasó", "que paso",
+    "ahora mismo", "en directo", "en vivo",
+)
+
+
+def _fecha_es(now) -> str:
+    """Fecha y hora en español, sin depender del locale del sistema."""
+    return (f"{_DIAS[now.weekday()]} {now.day} de {_MESES[now.month - 1]} "
+            f"de {now.year}, {now.strftime('%H:%M')}")
+
+
+def _needs_web(message: str) -> bool:
+    m = message.lower()
+    return any(t in m for t in _WEB_TRIGGERS)
+
+
+def _web_search(query: str, max_items: int = 6) -> str:
+    """Busca en DuckDuckGo (sin API key) y devuelve titulares recientes.
+    Devuelve '' si no hay resultados o ddgs no está disponible."""
+    items: list[str] = []
+    try:
+        from ddgs import DDGS
+        with DDGS() as ddg:
+            try:
+                res = ddg.news(query, region="es-es", timelimit="w",
+                               max_results=max_items) or []
+            except Exception:
+                res = []
+            if not res:
+                res = ddg.text(query, region="es-es", max_results=max_items) or []
+        for r in res:
+            title = (r.get("title") or "").strip()
+            body  = (r.get("body") or "").strip()[:180]
+            date  = (r.get("date") or "")[:10]
+            if title:
+                items.append(f"- {date + ' · ' if date else ''}{title}: {body}")
+    except Exception as exc:
+        logger.debug("Chat web search: %s", exc)
+    return "\n".join(items)
+
 
 class FootballChat:
     """
@@ -296,16 +346,41 @@ class FootballChat:
                 "Ayúdale a interpretar su ROI, CLV y racha reciente. "
             )
 
+        # ── Fecha/hora real: el chat antes decía "no sé qué día es" ───────────
+        from datetime import datetime as _dt
+        fecha = _fecha_es(_dt.now())
+
+        # ── Búsqueda web para preguntas de actualidad (resultados, partidos…) ─
+        web_block = ""
+        if _needs_web(user_message):
+            hits = _web_search(user_message)
+            if hits:
+                web_block = (
+                    "\n\n== BÚSQUEDA WEB EN TIEMPO REAL (resultados de hoy) ==\n"
+                    + hits
+                    + "\n(Usa estos titulares para responder sobre resultados/"
+                    "partidos recientes; cítalos si son relevantes.)"
+                )
+
         system = (
             "Eres un analista cuantitativo de fútbol experto en apuestas de valor. "
-            "Formas parte de AlphaBet v15, un sistema con modelos ML "
-            "(HistGradientBoosting, GradientBoosting, RandomForest), 116 features, "
-            "Club ELO, xG Understat, Kelly fraccionado y CLV tracking.\n\n"
+            "Formas parte de AlphaBet v15, un sistema con modelos ML (stacking "
+            "HistGB+XGBoost+RF), Club ELO, xG Understat, Kelly fraccionado y CLV.\n\n"
+            f"FECHA Y HORA ACTUAL DEL SISTEMA: {fecha}. "
+            "Esta es la fecha real de AHORA — úsala como referencia temporal.\n\n"
+            "REGLAS IMPORTANTES:\n"
+            "• Tienes la fecha actual (arriba) y los datos del usuario (abajo). "
+            "NUNCA digas que no tienes acceso a la fecha/hora ni a datos actuales: "
+            "SÍ los tienes en este mismo prompt.\n"
+            "• Si hay un bloque de BÚSQUEDA WEB, úsalo para responder sobre "
+            "resultados o partidos recientes.\n"
+            "• Si te falta un dato muy concreto que no está en el contexto ni en la "
+            "web, pídelo en UNA línea — pero no te excuses con limitaciones genéricas.\n\n"
             + (view_hint if view_hint else "")
-            + "Tienes acceso a los siguientes datos actuales del usuario:\n"
-            + (self._context_block or "Sin datos de contexto disponibles aún.")
-            + "\n\nResponde siempre en español. Sé conciso pero preciso con los números. "
-            "Si el usuario pregunta por picks específicos, apóyate en los datos de contexto."
+            + "DATOS ACTUALES DEL USUARIO (AlphaBet):\n"
+            + (self._context_block or "Sin análisis cargado todavía.")
+            + web_block
+            + "\n\nResponde siempre en español, conciso y preciso con los números."
         )
 
         messages = list(self._history) + [{"role": "user", "content": user_message}]
