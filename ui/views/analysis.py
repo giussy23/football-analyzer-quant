@@ -315,18 +315,25 @@ class AnalysisView(ctk.CTkFrame):
                 text_color=TEXT, fg_color=ACCENT,
             ).pack(anchor="w", pady=2)
 
-        # Parámetros
-        for label, var in [
-            ("Edge 1X2",        self.app.edge1),
-            ("Edge Over 2.5",   self.app.edge2),
-            ("Peso modelo 0-1 (blend mercado)", self.app.blend_w),
-            ("Bankroll base (€)", self.app.unit_stake),
+        # Parámetros (con texto de ayuda opcional)
+        for label, var, helptext in [
+            ("Edge mín. 1X2 (%)",      self.app.edge1,
+             "ventaja mín. del modelo sobre la cuota · 3 = 3% (típico 2–5)"),
+            ("Edge mín. Over 2.5 (%)", self.app.edge2,
+             "igual, para Más/Menos 2.5 goles"),
+            ("Peso modelo 0-1 (blend mercado)", self.app.blend_w, None),
+            ("Bankroll base (€)", self.app.unit_stake, None),
         ]:
             ctk.CTkLabel(lb, text=label, text_color=MUTED).pack(anchor="w", pady=(8, 2))
             ctk.CTkEntry(
                 lb, textvariable=var,
                 fg_color=CARD_2, border_color=BORDER, text_color=TEXT,
             ).pack(fill="x")
+            if helptext:
+                ctk.CTkLabel(
+                    lb, text=helptext, text_color=MUTED,
+                    font=ctk.CTkFont(size=9), wraplength=200, justify="left",
+                ).pack(anchor="w", pady=(1, 0))
 
         ctk.CTkCheckBox(
             lb, text="Solo verde premium",

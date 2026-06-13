@@ -130,8 +130,20 @@ class PremiumApp(ctk.CTk):
         def _bv(key: str, default: str = "0") -> tk.BooleanVar:
             return tk.BooleanVar(value=self.storage.get_setting(key, default) == "1")
 
-        self.edge1        = _sv("edge1",        "0.03")
-        self.edge2        = _sv("edge2",        "0.03")
+        # Edge en PORCENTAJE (3 = 3%). Migración silenciosa de los valores
+        # antiguos en decimal (0.03) → porcentaje (3), para que el campo sea
+        # intuitivo. _edge_decimal() hace la conversión inversa al analizar.
+        def _edge_var(key: str) -> tk.StringVar:
+            try:
+                v = float(self.storage.get_setting(key, "3"))
+            except (ValueError, TypeError):
+                v = 3.0
+            if v <= 0.5:          # decimal antiguo (0.03) → 3 %
+                v *= 100
+            return tk.StringVar(value=f"{v:g}")
+
+        self.edge1        = _edge_var("edge1")
+        self.edge2        = _edge_var("edge2")
         self.blend_w      = _sv("blend_model_weight", "0.35")  # peso modelo en blend con mercado
         self.unit_stake   = _sv("unit_stake",   "100")
         self.bankroll_eur = _sv("bankroll_eur", "0")    # banca total en euros (para P&L real)
@@ -1678,7 +1690,38 @@ class PremiumApp(ctk.CTk):
 
     # ── Settings persistence ──────────────────────────────────────────────────
 
+    def _edge_decimal(self, key: str) -> float:
+        """Lee un umbral de edge guardado y lo devuelve en DECIMAL (0.03).
+
+        Acepta tanto el formato nuevo en % (3 → 0.03) como valores antiguos
+        ya en decimal (0.03 → 0.03), para no romper configuraciones previas.
+        """
+        try:
+            v = float(self.storage.get_setting(key, "3"))
+        except (ValueError, TypeError):
+            return 0.03
+        return v if v <= 0.5 else v / 100.0   # ≤0.5 = decimal antiguo; resto = %
+
     def save_settings(self) -> None:
+        # ── Validar los umbrales de edge (en %) antes de guardar ──────────────
+        # Evita que se cuele un valor imposible (p.ej. 1.25 confundido con una
+        # cuota → 125%). Rango sensato: 0.5–25 %. Fuera de eso, corrige a 3 %.
+        for var, name in ((self.edge1, "Edge 1X2"), (self.edge2, "Edge Over 2.5")):
+            try:
+                pv = float(var.get())
+            except (ValueError, TypeError):
+                pv = None
+            if pv is None or not (0.5 <= pv <= 25):
+                bad = var.get()
+                var.set("3")
+                messagebox.showwarning(
+                    "Edge ajustado",
+                    f"{name}: «{bad}» no es un porcentaje válido.\n\n"
+                    "El edge es la ventaja mínima del modelo sobre la cuota, "
+                    "en % (no es una cuota). Usa un valor entre 0.5 y 25 "
+                    "(3 = 3%, lo recomendado).\n\nLo he ajustado a 3%.",
+                )
+
         token   = self.settings_view.get_token()
         chat_id = self.settings_view.get_chat_id()
         payload = {
@@ -1937,9 +1980,9 @@ class PremiumApp(ctk.CTk):
                     self._set_status(msg)
                     self._ui(lambda m=msg: self._prog_lbl.configure(text=m))
 
-                # Leer edge y flags desde storage (thread-safe; save_settings() ya los guardó)
-                _edge1      = float(self.storage.get_setting("edge1",        "0.03"))
-                _edge2      = float(self.storage.get_setting("edge2",        "0.03"))
+                # Leer edge (en %) y convertir a decimal; flags desde storage
+                _edge1      = self._edge_decimal("edge1")
+                _edge2      = self._edge_decimal("edge2")
                 try:
                     _blend_w = float(self.storage.get_setting("blend_model_weight", "0.35"))
                 except ValueError:
