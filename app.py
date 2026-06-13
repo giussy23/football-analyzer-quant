@@ -1702,6 +1702,74 @@ class PremiumApp(ctk.CTk):
             return 0.03
         return v if v <= 0.5 else v / 100.0   # ≤0.5 = decimal antiguo; resto = %
 
+    # ── Perfiles de filtro + auto-calibrado ───────────────────────────────────
+
+    # Cada perfil ajusta varios parámetros de golpe (edge en %, solo-verde)
+    EDGE_PROFILES = {
+        "🛡 Conservador": {"edge": "5", "only_green": True},
+        "⚖ Equilibrado": {"edge": "3", "only_green": True},
+        "🔥 Agresivo":    {"edge": "2", "only_green": False},
+    }
+
+    def apply_edge_profile(self, name: str) -> None:
+        """Aplica un perfil preconfigurado de filtro de picks."""
+        prof = self.EDGE_PROFILES.get(name)
+        if not prof:
+            return
+        self.edge1.set(prof["edge"])
+        self.edge2.set(prof["edge"])
+        self.only_green.set(prof["only_green"])
+        self.save_settings()
+        self._set_status(f"Perfil aplicado: {name} (edge {prof['edge']}%)")
+        try:
+            self.apply_filters()   # re-filtra el análisis ya cargado
+        except Exception:
+            logger.debug("apply_filters tras perfil", exc_info=True)
+
+    def auto_calibrate_edge(self) -> None:
+        """Calcula el edge óptimo a partir de los picks liquidados del usuario:
+        el umbral que maximiza el ROI manteniendo volumen suficiente."""
+        from tkinter import messagebox
+        picks = self.storage.load_model_picks(limit=1000)
+        settled = [
+            p for p in picks
+            if p.get("status") in ("WIN", "LOSS") and p.get("edge") is not None
+        ]
+        if len(settled) < 20:
+            messagebox.showinfo(
+                "Auto-calibrado",
+                f"Necesito al menos 20 picks liquidados para calcular el edge "
+                f"óptimo con tus datos (tienes {len(settled)}).\n\n"
+                "Registra más resultados en el Tracker y vuelve a pulsar Auto. "
+                "Mientras tanto, usa un perfil (Equilibrado = 3%).",
+            )
+            return
+
+        best_thr, best_roi, best_n = 0.03, -1e9, 0
+        for thr in (0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.05, 0.06):
+            sub = [p for p in settled if abs(float(p["edge"])) >= thr]
+            if len(sub) < 10:            # exige muestra mínima por umbral
+                continue
+            pnl   = sum(float(p.get("pnl") or 0) for p in sub)
+            stake = sum((float(p.get("bankroll_pct") or 0) or 1) for p in sub) or len(sub)
+            roi   = pnl / stake
+            if roi > best_roi:
+                best_roi, best_thr, best_n = roi, thr, len(sub)
+
+        pct = best_thr * 100
+        self.edge1.set(f"{pct:g}")
+        self.edge2.set(f"{pct:g}")
+        self.save_settings()
+        try:
+            self.apply_filters()
+        except Exception:
+            logger.debug("apply_filters tras auto", exc_info=True)
+        messagebox.showinfo(
+            "Auto-calibrado",
+            f"Edge óptimo según tus {len(settled)} picks liquidados: "
+            f"{pct:g}% (ROI {best_roi*100:+.1f}% sobre {best_n} picks).\n\nAplicado.",
+        )
+
     def save_settings(self) -> None:
         # ── Validar los umbrales de edge (en %) antes de guardar ──────────────
         # Evita que se cuele un valor imposible (p.ej. 1.25 confundido con una

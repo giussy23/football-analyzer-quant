@@ -315,6 +315,30 @@ class AnalysisView(ctk.CTkFrame):
                 text_color=TEXT, fg_color=ACCENT,
             ).pack(anchor="w", pady=2)
 
+        # ── Perfil de filtro: preconfigurados + auto-calibrado ────────────────
+        ctk.CTkLabel(lb, text="Perfil de filtro", text_color=MUTED).pack(
+            anchor="w", pady=(10, 2))
+        prof_names = list(self.app.EDGE_PROFILES.keys())
+        ctk.CTkSegmentedButton(
+            lb, values=prof_names,
+            command=self.app.apply_edge_profile,
+            fg_color=CARD_2, selected_color=ACCENT, selected_hover_color=ACCENT_2,
+            unselected_color=CARD_2, text_color=TEXT,
+            font=ctk.CTkFont(size=10),
+        ).pack(fill="x")
+        ctk.CTkButton(
+            lb, text="🤖  Auto (calcular edge óptimo)",
+            command=self.app.auto_calibrate_edge,
+            fg_color=CARD_2, hover_color=BORDER, text_color=ACCENT,
+            border_color=BORDER, border_width=1, height=28,
+            font=ctk.CTkFont(size=11),
+        ).pack(fill="x", pady=(6, 0))
+        ctk.CTkLabel(
+            lb, text="elige un perfil o pulsa Auto · o ajusta a mano abajo",
+            text_color=MUTED, font=ctk.CTkFont(size=9),
+            wraplength=200, justify="left",
+        ).pack(anchor="w", pady=(2, 4))
+
         # Parámetros (con texto de ayuda opcional)
         for label, var, helptext in [
             ("Edge mín. 1X2 (%)",      self.app.edge1,
