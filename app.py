@@ -852,10 +852,18 @@ class PremiumApp(ctk.CTk):
             col = _srng.choice(_STAR_COLS)
             sid = c.create_oval(sx - sz, sy - sz, sx + sz, sy + sz,
                                 fill=col, outline="")
-            # (id, color_brillante, color_apagado) para el parpadeo
+
+            # Titileo suave: cada estrella oscila entre apagada y brillante con
+            # su propia fase y velocidad → interpolación gradual, no parpadeo.
+            def _rgb(h):
+                h = h.lstrip("#")
+                return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
             dim = "#1a2740" if sz < 1.0 else "#2a3a5a"
-            self._logo_stars.append((sid, col, dim))
-        self._logo_star_i = 0
+            self._logo_stars.append((
+                sid, _rgb(col), _rgb(dim),
+                _srng.uniform(0, 6.28),     # fase
+                _srng.uniform(0.6, 1.4),    # velocidad relativa
+            ))
 
         # ── Función: elipse inclinada como polígono suave ─────────────────────
         def _draw_orbit_ring(ea, eb, tilt_deg, color, w=1):
@@ -964,14 +972,17 @@ class PremiumApp(ctk.CTk):
             c.coords(pulse, cx - pr, cy - pr, cx + pr, cy + pr)
             c.itemconfig(pulse, outline=f"#{ri:02x}{rg:02x}{rb:02x}")
 
-            # ── Parpadeo del cielo: ~3 estrellas alternan brillo por frame ────
+            # ── Titileo suave del cielo: brillo continuo (sin), no parpadeo ───
+            # Cada estrella interpola apagado↔brillante con su fase/velocidad.
+            # Solo cada 2 frames (≈15 fps) — sobra para un titileo lento.
             stars = getattr(self, "_logo_stars", None)
-            if stars:
-                for _ in range(3):
-                    self._logo_star_i = (self._logo_star_i + 7) % len(stars)
-                    sid, bright, dim = stars[self._logo_star_i]
-                    on = c.itemcget(sid, "fill") != bright
-                    c.itemconfig(sid, fill=bright if on else dim)
+            if stars and int(t / 0.140) % 2 == 0:
+                for sid, rb, rd, ph, vel in stars:
+                    k = 0.5 + 0.5 * math.sin(t * 0.22 * vel + ph)   # 0..1, lento
+                    r = int(rd[0] + (rb[0] - rd[0]) * k)
+                    g = int(rd[1] + (rb[1] - rd[1]) * k)
+                    b = int(rd[2] + (rb[2] - rd[2]) * k)
+                    c.itemconfig(sid, fill=f"#{r:02x}{g:02x}{b:02x}")
 
             # 30 fps (en vez de 60): mitad de redibujados del logo con la misma
             # velocidad visual (el incremento de t se dobla). Menos CPU constante.
