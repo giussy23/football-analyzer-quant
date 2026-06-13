@@ -10,3 +10,4 @@ pytest>=8.0
 # lightgbm>=4.0  # opcional — no hay wheels para Python 3.14; no se usa actualmente
 anthropic>=0.34
 ddgs>=0.1
+matplotlib>=3.8

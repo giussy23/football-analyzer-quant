@@ -93,7 +93,7 @@ class AlertsView(ctk.CTkScrollableFrame):
         self._poll_btn = ctk.CTkButton(
             ctrl_row, text="🔄  Poll Manual",
             command=self._manual_poll,
-            fg_color="#0a2210", width=120,
+            fg_color=CARD_2, width=120,
         )
         self._poll_btn.pack(side="right", padx=(0, 8))
 
@@ -175,7 +175,7 @@ class AlertsView(ctk.CTkScrollableFrame):
         ctk.CTkButton(
             sel_row, text="↻ Refrescar lista",
             command=self._refresh_match_list,
-            fg_color="#0a2210", width=130,
+            fg_color=CARD_2, width=130,
         ).pack(side="left", padx=8)
 
         # ── Formulario de baja ────────────────────────────────────────────────

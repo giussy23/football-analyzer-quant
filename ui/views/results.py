@@ -141,7 +141,7 @@ class ResultsView(ctk.CTkFrame):
 
     def _build_table(self) -> None:
         shell = ctk.CTkFrame(
-            self, fg_color="#060f07", corner_radius=12,
+            self, fg_color=CARD, corner_radius=12,
             border_color=BORDER, border_width=1,
         )
         shell.grid(row=2, column=0, sticky="nsew", pady=(0, 8))

@@ -542,7 +542,7 @@ class QuinielaView(ctk.CTkFrame):
         ctk.CTkButton(
             _grp_load, text="📋 Jornada",
             command=self.load_official,
-            fg_color="#0a2210", hover_color="#0f2e14", height=32, corner_radius=8,
+            fg_color=CARD_2, hover_color=CARD, height=32, corner_radius=8,
             font=ctk.CTkFont(size=11),
         ).pack(side="left", padx=3, pady=5)
         self._ml_btn = ctk.CTkButton(
@@ -579,7 +579,7 @@ class QuinielaView(ctk.CTkFrame):
         ctk.CTkButton(
             _grp_act, text="📤 Exportar",
             command=self.export_picks,
-            fg_color="#0a2210", hover_color="#0f2e14", **_ACT_BTN,
+            fg_color=CARD_2, hover_color=CARD, **_ACT_BTN,
         ).pack(side="left", padx=2)
         self._hist_toggle_btn = ctk.CTkButton(
             _grp_act, text="📂 Historial",
@@ -706,7 +706,7 @@ class QuinielaView(ctk.CTkFrame):
         style.map("Quiniela.Treeview",
                   background=[("selected", "#1a4d2a")])
 
-        shell = ctk.CTkFrame(self, fg_color="#060f07", corner_radius=14)
+        shell = ctk.CTkFrame(self, fg_color=CARD, corner_radius=14)
         shell.grid(row=1, column=0, sticky="nsew", pady=(0, 6))
         shell.grid_rowconfigure(0, weight=1)
         shell.grid_columnconfigure(0, weight=1)
@@ -1242,7 +1242,7 @@ class QuinielaView(ctk.CTkFrame):
         ctk.CTkButton(
             btn_bar, text="✅  Aplicar al boleto",
             command=_apply,
-            fg_color="#0a2210", hover_color="#0f2e14",
+            fg_color=CARD_2, hover_color=CARD,
             border_color="#22c55e", border_width=1,
             height=38, font=ctk.CTkFont(size=13, weight="bold"),
         ).pack(side="left", padx=(0, 10))
