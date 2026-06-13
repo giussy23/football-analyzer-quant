@@ -937,11 +937,14 @@ class PremiumApp(ctk.CTk):
             if getattr(self, '_animations_paused', False):
                 anim_id[0] = c.after(500, lambda: _animate(t))
                 return
+            # Velocidad de los cometas orbitales (0.5 = mitad; no afecta al
+            # titileo de estrellas ni al anillo pulsante, que dependen de t).
+            _CS = 0.5
             step1 = 0.042 * 1.15   # incremento angular por frame órbita 1
             step2 = 0.042 * 0.80   # incremento angular por frame órbita 2
 
             # ── Órbita 1 – partícula A (cyan) con cola ──
-            ang1a = t * 1.15
+            ang1a = t * 1.15 * _CS
             for i, (item, sz) in enumerate(zip(p1a_tail, SZ_BIG)):
                 xp, yp = _pos(74, 22, 28, ang1a - i * step1)
                 _place(item, xp, yp, sz)
@@ -957,7 +960,7 @@ class PremiumApp(ctk.CTk):
             _place(p1b_g, x1b, y1b, 7);   _place(p1b, x1b, y1b, 3.0)
 
             # ── Órbita 2 – partícula verde (sentido contrario) con cola ──
-            ang2 = -t * 0.80 + 0.8
+            ang2 = -t * 0.80 * _CS + 0.8
             for i, (item, sz) in enumerate(zip(p2_tail, SZ_GRN)):
                 xp, yp = _pos(58, 20, -42, ang2 + i * step2)  # cola en sentido +
                 _place(item, xp, yp, sz)
