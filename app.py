@@ -834,6 +834,29 @@ class PremiumApp(ctk.CTk):
             c.create_text(cx, cy, text="α", font=("Georgia", 42, "bold italic"),
                           fill="#34d399", anchor="center")
 
+        # ── Cielo estrellado: cubre todo el ancho del header del sidebar ──────
+        # El logo PNG (con viñeta) deja los laterales oscuros; estas estrellas
+        # de canvas se extienden de lado a lado para que parezca un cielo, no
+        # un logo recortado. Evitan la zona central (símbolo α + "AlphaBet").
+        import random as _srng_mod
+        _srng = _srng_mod.Random(7)
+        _STAR_COLS = ["#cfe8ff", "#ffffff", "#a8ccff", "#d8ecff", "#9fd0e8"]
+        self._logo_stars: list[tuple] = []
+        for _ in range(52):
+            sx = _srng.randint(3, W - 3)
+            sy = _srng.randint(3, H - 6)
+            # No pisar el símbolo α ni el texto del logo (banda central)
+            if abs(sx - cx) < 66 and 72 < sy < 205:
+                continue
+            sz  = _srng.choice([0.6, 0.6, 1.0, 1.0, 1.0, 1.5])
+            col = _srng.choice(_STAR_COLS)
+            sid = c.create_oval(sx - sz, sy - sz, sx + sz, sy + sz,
+                                fill=col, outline="")
+            # (id, color_brillante, color_apagado) para el parpadeo
+            dim = "#1a2740" if sz < 1.0 else "#2a3a5a"
+            self._logo_stars.append((sid, col, dim))
+        self._logo_star_i = 0
+
         # ── Función: elipse inclinada como polígono suave ─────────────────────
         def _draw_orbit_ring(ea, eb, tilt_deg, color, w=1):
             rot = math.radians(tilt_deg)
@@ -940,6 +963,15 @@ class PremiumApp(ctk.CTk):
             rb = int(38 + 36 * (math.sin(t * 0.48) * 0.5 + 0.5))
             c.coords(pulse, cx - pr, cy - pr, cx + pr, cy + pr)
             c.itemconfig(pulse, outline=f"#{ri:02x}{rg:02x}{rb:02x}")
+
+            # ── Parpadeo del cielo: ~3 estrellas alternan brillo por frame ────
+            stars = getattr(self, "_logo_stars", None)
+            if stars:
+                for _ in range(3):
+                    self._logo_star_i = (self._logo_star_i + 7) % len(stars)
+                    sid, bright, dim = stars[self._logo_star_i]
+                    on = c.itemcget(sid, "fill") != bright
+                    c.itemconfig(sid, fill=bright if on else dim)
 
             # 30 fps (en vez de 60): mitad de redibujados del logo con la misma
             # velocidad visual (el incremento de t se dobla). Menos CPU constante.
