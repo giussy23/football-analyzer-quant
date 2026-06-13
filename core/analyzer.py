@@ -207,7 +207,11 @@ def compute_reliability(
 
     # ── Per-división ──────────────────────────────────────────────────────────
     score += max(0, min(12, float(bt_roi) * 160))        # ROI backtest (0-12 pts)
-    score += max(0, min(8,  (1.15 - float(bt_logloss)) * 20))  # log-loss OOS
+    # log-loss OOS (0-8 pts). Referencia 1.55: el logloss guardado es el CRUDO
+    # de los base learners (~1.3-1.5), no el del modelo completo (~1.0). Con la
+    # referencia antigua de 1.15 este componente daba 0 siempre → la fiabilidad
+    # se subestimaba ~8 pts. Ahora discrimina (logloss 1.30 → 5.5 pts).
+    score += max(0, min(8, (1.55 - float(bt_logloss)) * 22))
 
     # ── Penalización de inestabilidad (suavizada) ─────────────────────────────
     # pure WF tiene roi_std más alta que pseudo-OOS → penalización proporcional
@@ -224,11 +228,15 @@ def assess_risk(
 ) -> tuple[str, str]:
     if market == "NO BET":
         return "ROJO", "No apostar"
-    if not passes_filters or reliability < 58:
+    if not passes_filters or reliability < 52:
         return "ROJO", "Muestra o calibración insuficiente"
-    if edge is not None and edge >= 0.08 and reliability >= 74:
+    # Umbrales recalibrados al blend modelo+mercado (w=0.35): el blend encoge
+    # los edges a ~⅓ del crudo, así que 3.5 % post-blend ya es señal fuerte
+    # (equivale a ~10 % sin blend). Antes exigían 8 %/4.5 %, inalcanzable con
+    # blend → casi nunca había picks VERDES.
+    if edge is not None and edge >= 0.035 and reliability >= 66:
         return "VERDE", "Ventaja estadística sólida"
-    if edge is not None and edge >= 0.045 and reliability >= 64:
+    if edge is not None and edge >= 0.02 and reliability >= 58:
         return "AMARILLO", "Hay valor pero con cautela"
     return "ROJO", "Ventaja insuficiente"
 
@@ -1059,7 +1067,9 @@ class Analyzer:
                     and (pd.isna(feat_row.get("m_open_ou_overround")) or feat_row.get("m_open_ou_overround") <= MAX_OVERROUND_OU)
                 )
                 clv_ok         = clv is None or clv >= CLV_MIN
-                edge_ok        = edge is not None and edge >= max(edge_1x2 if market in ["1", "X", "2"] else edge_ou, 0.025)
+                # Suelo mínimo 1.5% (antes 2.5%, que ignoraba el perfil Agresivo
+                # de 2%). Respeta el umbral del usuario por encima de ese suelo.
+                edge_ok        = edge is not None and edge >= max(edge_1x2 if market in ["1", "X", "2"] else edge_ou, 0.015)
                 passes_filters = sample_ok and overround_ok and clv_ok and edge_ok
 
                 reliability  = compute_reliability(

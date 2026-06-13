@@ -118,7 +118,7 @@ class TestAssessRisk:
         assert light == "AMARILLO"
 
     def test_red_weak_edge(self):
-        light, _ = assess_risk(edge=0.02, reliability=70, passes_filters=True, market="1")
+        light, _ = assess_risk(edge=0.01, reliability=70, passes_filters=True, market="1")
         assert light == "ROJO"
 
     def test_red_low_reliability(self):
