@@ -83,59 +83,54 @@ class PerformanceView(ctk.CTkScrollableFrame):
         )
         self._refresh_btn.pack(side="right")
 
-        # ── Tarjetas KPI ──────────────────────────────────────────────────────
-        kpi_row = ctk.CTkFrame(self, fg_color="transparent")
-        kpi_row.pack(fill="x", padx=16, pady=12)
-        for i in range(5):
-            kpi_row.columnconfigure(i, weight=1)
-
         self._kpi_cards: dict = {}
-        kpi_defs = [
-            ("picks",    "Picks rastreados"),
-            ("win_rate", "Win Rate"),
-            ("roi",      "ROI acum."),
-            ("avg_clv",  "CLV medio"),
-            ("avg_edge", "Edge medio"),
-        ]
-        for col, (key, label) in enumerate(kpi_defs):
-            card = ctk.CTkFrame(kpi_row, fg_color=_CARD_BG, corner_radius=10,
-                                border_color=BORDER, border_width=1)
-            card.grid(row=0, column=col, padx=5, sticky="ew")
-            ctk.CTkLabel(card, text=label, text_color=MUTED,
-                         font=ctk.CTkFont(size=10)).pack(pady=(8, 0))
-            val_var  = tk.StringVar(value="—")
-            sub_var  = tk.StringVar(value="")
-            val_lbl  = ctk.CTkLabel(card, textvariable=val_var, text_color=ACCENT,
-                                    font=ctk.CTkFont(size=18, weight="bold"))
-            val_lbl.pack(pady=2)
-            ctk.CTkLabel(card, textvariable=sub_var, text_color=MUTED,
-                         font=ctk.CTkFont(size=10)).pack(pady=(0, 8))
-            self._kpi_cards[key] = (val_var, sub_var, val_lbl, card)
 
-        # ── Tarjetas KPI — fila 2 (Sharpe, Max Drawdown, Racha) ──────────────
-        kpi_row2 = ctk.CTkFrame(self, fg_color="transparent")
-        kpi_row2.pack(fill="x", padx=16, pady=(0, 12))
-        for i in range(3):
-            kpi_row2.columnconfigure(i, weight=1)
-
-        for col, (key, label) in enumerate([
-            ("sharpe",  "Sharpe Ratio"),
-            ("max_dd",  "Max Drawdown"),
-            ("racha",   "Racha actual"),
-        ]):
-            card = ctk.CTkFrame(kpi_row2, fg_color=_CARD_BG, corner_radius=10,
+        def _kpi_card(parent, key, label):
+            """Tarjeta KPI estilo hero: acento lateral de color + valor grande,
+            alineada a la izquierda y con aire (lenguaje del mockup Aurora Glass)."""
+            card = ctk.CTkFrame(parent, fg_color=CARD_2, corner_radius=16,
                                 border_color=BORDER, border_width=1)
-            card.grid(row=0, column=col, padx=5, sticky="ew")
-            ctk.CTkLabel(card, text=label, text_color=MUTED,
-                         font=ctk.CTkFont(size=10)).pack(pady=(8, 0))
+            strip = ctk.CTkFrame(card, fg_color=ACCENT, width=4, corner_radius=2)
+            strip.pack(side="left", fill="y", padx=(8, 0), pady=14)
+            body = ctk.CTkFrame(card, fg_color="transparent")
+            body.pack(side="left", fill="both", expand=True, padx=(14, 12), pady=14)
+            ctk.CTkLabel(body, text=label, text_color=MUTED,
+                         font=ctk.CTkFont(size=12), anchor="w").pack(anchor="w")
             val_var = tk.StringVar(value="—")
             sub_var = tk.StringVar(value="")
-            val_lbl = ctk.CTkLabel(card, textvariable=val_var, text_color=ACCENT,
-                                   font=ctk.CTkFont(size=18, weight="bold"))
-            val_lbl.pack(pady=2)
-            ctk.CTkLabel(card, textvariable=sub_var, text_color=MUTED,
-                         font=ctk.CTkFont(size=10)).pack(pady=(0, 8))
-            self._kpi_cards[key] = (val_var, sub_var, val_lbl, card)
+            val_lbl = ctk.CTkLabel(body, textvariable=val_var, text_color=ACCENT,
+                                   font=ctk.CTkFont(size=30, weight="bold"), anchor="w")
+            val_lbl.pack(anchor="w", pady=(6, 2))
+            ctk.CTkLabel(body, textvariable=sub_var, text_color=MUTED,
+                         font=ctk.CTkFont(size=11), anchor="w").pack(anchor="w")
+            self._kpi_cards[key] = (val_var, sub_var, val_lbl, card, strip)
+            return card
+
+        # ── Tarjetas KPI — fila 1 (4 grandes) ────────────────────────────────
+        kpi_row = ctk.CTkFrame(self, fg_color="transparent")
+        kpi_row.pack(fill="x", padx=20, pady=(16, 10))
+        for i in range(4):
+            kpi_row.columnconfigure(i, weight=1)
+        for col, (key, label) in enumerate([
+            ("picks",    "Picks rastreados"),
+            ("win_rate", "Win rate"),
+            ("roi",      "ROI acumulado"),
+            ("avg_clv",  "CLV medio"),
+        ]):
+            _kpi_card(kpi_row, key, label).grid(row=0, column=col, padx=8, sticky="ew")
+
+        # ── Tarjetas KPI — fila 2 (Edge, Sharpe, Max DD, Racha) ──────────────
+        kpi_row2 = ctk.CTkFrame(self, fg_color="transparent")
+        kpi_row2.pack(fill="x", padx=20, pady=(0, 14))
+        for i in range(4):
+            kpi_row2.columnconfigure(i, weight=1)
+        for col, (key, label) in enumerate([
+            ("avg_edge", "Edge medio"),
+            ("sharpe",   "Sharpe ratio"),
+            ("max_dd",   "Max drawdown"),
+            ("racha",    "Racha actual"),
+        ]):
+            _kpi_card(kpi_row2, key, label).grid(row=0, column=col, padx=8, sticky="ew")
 
         # ── Equity curve ──────────────────────────────────────────────────────
         eq_frame = ctk.CTkFrame(self, fg_color=_CARD_BG, corner_radius=12,
@@ -329,8 +324,10 @@ class PerformanceView(ctk.CTkScrollableFrame):
             entry[1].set(sub_str)
             if len(entry) > 2:
                 entry[2].configure(text_color=color)
-            # Borde de color de la card según el estado semántico (verde/amarillo/
-            # rojo) → "vida" de un vistazo; neutro vuelve al borde normal.
+            # Acento lateral + borde de color según el estado semántico → "vida"
+            # de un vistazo; el acento lateral siempre toma el color del valor.
+            if len(entry) > 4:
+                entry[4].configure(fg_color=color if color != MUTED else BORDER)
             if len(entry) > 3:
                 if color in (_GREEN, _YELLOW, _RED):
                     entry[3].configure(border_color=color, border_width=2)
