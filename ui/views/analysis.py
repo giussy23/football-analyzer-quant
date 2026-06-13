@@ -384,10 +384,10 @@ class AnalysisView(ctk.CTkFrame):
         ).pack(side="left", fill="x", expand=True)
         self.app.search_var.trace_add("write", lambda *_: self.app._schedule_filter())
 
-        # KPI hero row — estilo marcador eléctrico de estadio
+        # KPI hero row — sigue la paleta del tema (antes verde LED fijo)
         hero = ctk.CTkFrame(
-            center, fg_color="#020a03",
-            border_color="#0d9488", border_width=1, corner_radius=14,
+            center, fg_color=BG,
+            border_color=BORDER, border_width=1, corner_radius=14,
         )
         hero.pack(fill="x", padx=14, pady=(0, 8))
         hero.grid_columnconfigure((0, 1, 2, 3), weight=1)
@@ -396,8 +396,8 @@ class AnalysisView(ctk.CTkFrame):
         self.metric_labels: list[ctk.CTkLabel] = []
         for idx, (icon, title) in enumerate(zip(_HERO_ICONS, ["Partidos", "Picks", "ROI (OOS)", "Verde / Amar."])):
             box = ctk.CTkFrame(
-                hero, fg_color="#030f04",
-                border_color="#0d3d18", border_width=1, corner_radius=10,
+                hero, fg_color=CARD_2,
+                border_color=BORDER, border_width=1, corner_radius=10,
             )
             box.grid(row=0, column=idx, padx=6, pady=8, sticky="ew")
             # Icono + título en la misma fila
@@ -405,12 +405,12 @@ class AnalysisView(ctk.CTkFrame):
             hdr.pack(anchor="w", padx=10, pady=(8, 0))
             ctk.CTkLabel(hdr, text=icon, font=ctk.CTkFont(size=13)).pack(side="left")
             ctk.CTkLabel(
-                hdr, text=f"  {title}", text_color="#4ade80",
+                hdr, text=f"  {title}", text_color=MUTED,
                 font=ctk.CTkFont(size=10, weight="bold"),
             ).pack(side="left")
             # Valor: fuente monoespaciada tipo marcador LED
             val = ctk.CTkLabel(
-                box, text="—", text_color="#00e040",
+                box, text="—", text_color=ACCENT,
                 font=ctk.CTkFont(family="Consolas", size=20, weight="bold"),
             )
             val.pack(anchor="w", padx=12, pady=(2, 8))

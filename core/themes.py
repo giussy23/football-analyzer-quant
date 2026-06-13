@@ -178,6 +178,33 @@ THEMES: dict[str, dict] = {
         "banner_intensity": 1.85,   # cortinas con gama propia (suave) → más brillo
     },
 
+    # Tema premium "glassmorphism": paneles claros translúcidos sobre índigo
+    # profundo + bordes violeta luminosos → efecto cristal (sin blur real, que
+    # tkinter no soporta; se logra con la paleta). card/card2 deliberadamente
+    # MÁS CLAROS que el fondo, border luminoso para que los paneles "floten".
+    "🪟 Aurora Glass": {
+        "label":            "🪟 Aurora Glass",
+        "bg":               "#0b0a18",
+        "card":             "#1b1930",   # panel cristal (claro sobre el índigo)
+        "card2":            "#232139",
+        "accent":           "#b9a5ff",   # violeta brillante
+        "accent2":          "#5ee6cf",   # cyan
+        "border":           "#4f4685",   # borde luminoso del cristal
+        "muted":            "#928cbe",
+        "text":             "#f2f0ff",
+        "nav_active_bg":    "#272252",
+        "nav_inactive_text":"#a8a3d0",
+        "nav_inactive_bg":  "#131127",
+        "nav_hover_bg":     "#1d1a38",
+        "run_btn":          "#6b54d8",
+        "run_btn_hover":    "#8a6dff",
+        "swatch":           "#8a6dff",
+        "sidebar_bg":       "#141127",
+        "sidebar_border":   "#6b5cc9",
+        "decor":            "aurora",
+        "banner_intensity": 1.7,
+    },
+
     "Océano": {
         "label":            "Océano",
         "bg":               "#020a14",
