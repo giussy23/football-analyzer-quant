@@ -1183,19 +1183,23 @@ class PremiumApp(ctk.CTk):
 
     def _build_ticker(self, parent) -> None:
         """Barra scrolling estilo Sky Sports con los próximos picks."""
-        outer = tk.Frame(parent, bg="#060f07", height=28)
+        from .core.themes import get_current_theme as _gct
+        _t = _gct()
+        outer = tk.Frame(parent, bg=_t["card"], height=28)
         outer.grid(row=1, column=0, sticky="ew", pady=(0, 6))
         outer.grid_propagate(False)
+        self._ticker_outer = outer
 
-        # Etiqueta fija izquierda: "⚽ LIVE"
-        tk.Label(
-            outer, text=" ⚽ PICKS ", bg="#0d9488", fg="#ffffff",
+        # Etiqueta fija izquierda: "⚽ PICKS"
+        self._ticker_label = tk.Label(
+            outer, text=" ⚽ PICKS ", bg=_t["border"], fg="#ffffff",
             font=("Segoe UI", 9, "bold"),
-        ).pack(side="left", ipadx=2)
+        )
+        self._ticker_label.pack(side="left", ipadx=2)
 
         # Canvas scrollable para el texto
         self._ticker_canvas = tk.Canvas(
-            outer, bg="#060f07", height=28,
+            outer, bg=_t["card"], height=28,
             highlightthickness=0, bd=0,
         )
         self._ticker_canvas.pack(side="left", fill="both", expand=True)
@@ -1204,7 +1208,7 @@ class PremiumApp(ctk.CTk):
             0, 14,
             text="  —  Sin análisis cargado. Pulsa ▶ Run Analysis para ver picks.  ",
             anchor="w",
-            fill="#4ade80",
+            fill=_t["accent"],
             font=("Consolas", 10),
         )
         self._ticker_x     = 0.0        # posición X actual del texto
@@ -1390,6 +1394,16 @@ class PremiumApp(ctk.CTk):
         # ── Banner hero del header con el glow del tema nuevo ─────────────────
         try:
             self._render_header_banner()
+        except Exception:
+            logger.debug("Excepción ignorada", exc_info=True)
+
+        # ── Ticker (canvas items: no los alcanza el repintado de widgets) ─────
+        try:
+            if hasattr(self, "_ticker_outer"):
+                self._ticker_outer.configure(bg=t["card"])
+                self._ticker_canvas.configure(bg=t["card"])
+                self._ticker_label.configure(bg=t["border"])
+                self._ticker_canvas.itemconfig(self._ticker_text_id, fill=t["accent"])
         except Exception:
             logger.debug("Excepción ignorada", exc_info=True)
 
