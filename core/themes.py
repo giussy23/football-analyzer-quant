@@ -175,6 +175,7 @@ THEMES: dict[str, dict] = {
         "sidebar_bg":       "#0a0720",
         "sidebar_border":   "#7c5cff",
         "decor":            "aurora",
+        "banner_intensity": 1.85,   # cortinas con gama propia (suave) → más brillo
     },
 
     "Océano": {

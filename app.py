@@ -755,8 +755,20 @@ class PremiumApp(ctk.CTk):
         cw = c.winfo_width()
         w  = cw if cw > 1 else self.winfo_screenwidth()
         self._header_last_w = w
-        # Banner más vibrante que el fondo de pantalla (glow ×1.8)
-        photo = self._make_aurora_image(w, self._header_h, t, intensity=1.8)
+        # Intensidad calibrada por tema: un acento brillante (cyan Navy, verde
+        # Esmeralda) se sobresatura con un valor alto, uno apagado necesita más.
+        # Se calcula desde la luminancia del acento; banner_intensity lo anula
+        # (Aurora usa colores propios, no su acento → necesita override).
+        intensity = t.get("banner_intensity")
+        if intensity is None:
+            try:
+                hx = t["accent"].lstrip("#")
+                r, g, b = (int(hx[i:i+2], 16) for i in (0, 2, 4))
+                lum = 0.2126 * r + 0.7152 * g + 0.0722 * b      # 0..255
+                intensity = max(1.15, min(1.7, 1.8 - (lum - 120) / 80 * 0.65))
+            except Exception:
+                intensity = 1.5
+        photo = self._make_aurora_image(w, self._header_h, t, intensity=float(intensity))
         c.configure(bg=t["bg"])
         if photo is not None:
             self._header_photo = photo   # mantener referencia viva
