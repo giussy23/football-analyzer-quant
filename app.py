@@ -527,10 +527,14 @@ class PremiumApp(ctk.CTk):
         # ── Detrás de todo ────────────────────────────────────────────────
         tk.Misc.lower(c)
 
-    def _make_aurora_image(self, w: int, h: int, t: dict):
+    def _make_aurora_image(self, w: int, h: int, t: dict, intensity: float = 1.0):
         """Genera el resplandor de aurora boreal del tema 🌌 Aurora: degradado
         índigo + tres glows gaussianos (aqua/violeta) renderizados a baja
         resolución con numpy y reescalados (suave y rápido, ~90 ms a 1080p).
+
+        intensity escala el brillo de los glows: 1.0 = fondo sutil de pantalla,
+        ~1.8 = banner hero (más vibrante). Funciona con cualquier tema (usa su
+        accent/accent2); sin tema "decor" igualmente da un degradado elegante.
         Devuelve un PhotoImage o None si algo falla."""
         try:
             import numpy as np
@@ -540,7 +544,7 @@ class PremiumApp(ctk.CTk):
                 c = c.lstrip("#")
                 return np.array([int(c[i:i+2], 16) for i in (0, 2, 4)], float)
 
-            sw, sh = 220, 140
+            sw, sh = 240, 150
             yy, xx = np.mgrid[0:sh, 0:sw].astype(float)
             yn, xn = yy / (sh - 1), xx / (sw - 1)
             bg, top = _hx(t["bg"]), _hx(t.get("card2", t["bg"]))
@@ -549,12 +553,12 @@ class PremiumApp(ctk.CTk):
 
             def _glow(cx, cy, sx, sy, col, s):
                 g = np.exp(-(((xn - cx) / sx) ** 2 + ((yn - cy) / sy) ** 2))
-                return g[..., None] * col[None, None, :] * s
+                return g[..., None] * col[None, None, :] * (s * intensity)
 
             out = (base
-                   + _glow(0.28, 0.12, 0.33, 0.20, a1, 0.55)
-                   + _glow(0.72, 0.06, 0.38, 0.18, a2, 0.50)
-                   + _glow(0.50, 0.32, 0.55, 0.30, a1, 0.16))
+                   + _glow(0.26, 0.16, 0.34, 0.30, a1, 0.55)
+                   + _glow(0.74, 0.10, 0.40, 0.26, a2, 0.52)
+                   + _glow(0.50, 0.40, 0.58, 0.36, a1, 0.18))
             out = np.clip(out, 0, 255).astype("uint8")
             im  = Image.fromarray(out, "RGB").resize((max(w, 1), max(h, 1)), Image.BILINEAR)
             return ImageTk.PhotoImage(im)
@@ -698,7 +702,8 @@ class PremiumApp(ctk.CTk):
         from .core.themes import get_current_theme
         t  = get_current_theme()
         sw = self.winfo_screenwidth()
-        photo = self._make_aurora_image(sw, self._header_h, t)
+        # Banner más vibrante que el fondo de pantalla (glow ×1.8)
+        photo = self._make_aurora_image(sw, self._header_h, t, intensity=1.8)
         c.configure(bg=t["bg"])
         if photo is not None:
             self._header_photo = photo   # mantener referencia viva
@@ -1051,19 +1056,19 @@ class PremiumApp(ctk.CTk):
         # Es la superficie grande, siempre visible y casi vacía donde el "arte"
         # del tema (el glow de aurora) por fin se ve de frente. Canvas estable
         # (sin overlay): imagen de glow + textos dibujados sobre ella.
-        HDR_H = 96
+        HDR_H = 128
         header = tk.Canvas(stage, height=HDR_H, highlightthickness=0, bd=0)
         header.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         self._header_canvas = header
         self._header_h      = HDR_H
         self._header_bg_item = header.create_image(0, 0, anchor="nw")
         self._header_title_item = header.create_text(
-            6, 40, anchor="w", text="Analysis",
-            font=("Segoe UI Semibold", 24, "bold"), fill="#f0fff4",
+            10, 56, anchor="w", text="Analysis",
+            font=("Segoe UI Semibold", 32, "bold"), fill="#f0fff4",
         )
         self._header_hint_item = header.create_text(
-            8, 70, anchor="w", text="Solo próximos partidos, filtros y picks",
-            font=("Segoe UI", 11), fill="#4ade80",
+            12, 92, anchor="w", text="Solo próximos partidos, filtros y picks",
+            font=("Segoe UI", 12), fill="#4ade80",
         )
         self._header_rule_item = header.create_line(
             0, HDR_H - 1, 2000, HDR_H - 1, fill="#1a5c2a",

@@ -23,3 +23,9 @@ docs/manual_img/
 .claude/
 gen_logo_tmp.py
 installer/*.exe
+
+# Artefactos de runtime SQLite (WAL) y diagnóstico de UI
+*.db-shm
+*.db-wal
+*.db-journal
+ui_stalls.log
