@@ -210,7 +210,7 @@ class ChatView(ctk.CTkFrame):
 
         from ...core.ai_chat import FootballChat
         if self._chat is None or self._chat.api_key != api_key:
-            self._chat = FootballChat(api_key=api_key)
+            self._chat = FootballChat(api_key=api_key, storage=self.app.storage)
 
         # ── Picks actuales (Trading Desk) ──────────────────────────────────────
         picks: list[dict] = []
@@ -412,9 +412,9 @@ class ChatView(ctk.CTkFrame):
         # Lazy init
         from ...core.ai_chat import FootballChat
         if self._chat is None:
-            self._chat = FootballChat(api_key=api_key)
+            self._chat = FootballChat(api_key=api_key, storage=self.app.storage)
         elif self._chat.api_key != api_key:
-            self._chat = FootballChat(api_key=api_key)
+            self._chat = FootballChat(api_key=api_key, storage=self.app.storage)
 
         self._entry.delete(0, "end")
         self._append_user(text)

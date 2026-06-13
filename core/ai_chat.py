@@ -80,12 +80,115 @@ class FootballChat:
         chat.clear()
     """
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, storage=None) -> None:
         self.api_key = api_key
+        self._storage = storage          # para la herramienta consultar_historial
         self._history: list[dict] = []   # [{"role": "user"|"assistant", "content": str}]
         self._context_block: str = ""    # Bloque de contexto inyectado en cada system prompt
         self._model_used: str = "—"
         self._active_view: str = ""
+
+    # ── Herramientas (function calling) ────────────────────────────────────────
+
+    _TOOLS = [
+        {
+            "name": "buscar_web",
+            "description": (
+                "Busca en internet información ACTUAL de fútbol: resultados de "
+                "partidos jugados, lesiones, alineaciones probables, fichajes, "
+                "noticias, clasificaciones. Úsala siempre que necesites datos "
+                "posteriores a tu entrenamiento o de los últimos días."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Búsqueda concreta, p.ej. 'Real Madrid lesionados jornada' o 'resultado Brasil Marruecos'",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "consultar_historial",
+            "description": (
+                "Consulta el historial REAL del usuario en AlphaBet: sus picks "
+                "liquidados (ROI, CLV, racha), combinadas y quinielas guardadas. "
+                "Úsala cuando pregunte por su rendimiento, su mejor/peor pick, "
+                "cómo va el mes, su CLV, etc."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "tipo": {
+                        "type": "string",
+                        "enum": ["resumen", "picks_liquidados", "combinadas", "quinielas"],
+                        "description": "Qué consultar: 'resumen' (win rate, ROI, CLV global) o el detalle de cada tipo",
+                    }
+                },
+                "required": ["tipo"],
+            },
+        },
+    ]
+
+    def _consultar_historial(self, tipo: str) -> str:
+        """Ejecuta la herramienta consultar_historial sobre la BD (read-only)."""
+        if self._storage is None:
+            return "No hay base de datos conectada."
+        try:
+            if tipo in ("resumen", "picks_liquidados"):
+                picks   = self._storage.load_model_picks(limit=500)
+                settled = [p for p in picks if p.get("status") in ("WIN", "LOSS")]
+                if not settled:
+                    return "El usuario aún no tiene picks liquidados (WIN/LOSS)."
+                wins = sum(1 for p in settled if p["status"] == "WIN")
+                pnl  = sum(float(p.get("pnl") or 0) for p in settled)
+                clvs = [float(p["clv"]) for p in settled if p.get("clv") is not None]
+                clv_avg = (sum(clvs) / len(clvs)) if clvs else None
+                head = (
+                    f"RESUMEN: {len(settled)} picks liquidados · "
+                    f"{wins}W/{len(settled)-wins}L · acierto {wins/len(settled)*100:.0f}% · "
+                    f"P&L {pnl:+.2f}€"
+                    + (f" · CLV medio {clv_avg*100:+.1f}%" if clv_avg is not None else "")
+                )
+                if tipo == "resumen":
+                    return head
+                lines = [head, "", "ÚLTIMOS 20:"]
+                for p in settled[-20:]:
+                    ic = "✅" if p["status"] == "WIN" else "❌"
+                    lines.append(
+                        f"{ic} {p.get('home_team','')} vs {p.get('away_team','')} — "
+                        f"{p.get('pick','')} @ {float(p.get('odds') or 0):.2f} · "
+                        f"P&L {float(p.get('pnl') or 0):+.2f}€"
+                    )
+                return "\n".join(lines)
+            if tipo == "combinadas":
+                combos = self._storage.load_combos(limit=30)
+                if not combos:
+                    return "Sin combinadas guardadas."
+                lines = [f"{len(combos)} combinadas guardadas (últimas 15):"]
+                for c in combos[:15]:
+                    legs = c.get("legs", c.get("picks", []))
+                    odds = c.get("combo_odds", c.get("odds"))
+                    st   = c.get("status", c.get("result", "PENDIENTE"))
+                    lines.append(f"· {len(legs)} patas @ {float(odds or 0):.2f} — {st}")
+                return "\n".join(lines)
+            if tipo == "quinielas":
+                qs = self._storage.load_quinielas(limit=20)
+                if not qs:
+                    return "Sin quinielas guardadas."
+                lines = [f"{len(qs)} quinielas guardadas:"]
+                for q in qs[:15]:
+                    j  = q.get("jornada", "?")
+                    ac = q.get("aciertos")
+                    st = q.get("status", "PENDIENTE")
+                    lines.append(f"· Jornada {j} — {st}" + (f" · {ac} aciertos" if ac is not None else ""))
+                return "\n".join(lines)
+            return "Tipo de consulta no reconocido."
+        except Exception as exc:
+            logger.debug("consultar_historial error: %s", exc)
+            return f"Error al leer el historial: {exc}"
 
     # ── Contexto ──────────────────────────────────────────────────────────────
 
@@ -350,37 +453,24 @@ class FootballChat:
         from datetime import datetime as _dt
         fecha = _fecha_es(_dt.now())
 
-        # ── Búsqueda web para preguntas de actualidad (resultados, partidos…) ─
-        web_block = ""
-        if _needs_web(user_message):
-            hits = _web_search(user_message)
-            if hits:
-                web_block = (
-                    "\n\n== BÚSQUEDA WEB EN TIEMPO REAL (resultados de hoy) ==\n"
-                    + hits
-                    + "\n(Usa estos titulares para responder sobre resultados/"
-                    "partidos recientes; cítalos si son relevantes.)"
-                )
-
         system = (
             "Eres un analista cuantitativo de fútbol experto en apuestas de valor. "
             "Formas parte de AlphaBet v15, un sistema con modelos ML (stacking "
             "HistGB+XGBoost+RF), Club ELO, xG Understat, Kelly fraccionado y CLV.\n\n"
             f"FECHA Y HORA ACTUAL DEL SISTEMA: {fecha}. "
             "Esta es la fecha real de AHORA — úsala como referencia temporal.\n\n"
-            "REGLAS IMPORTANTES:\n"
-            "• Tienes la fecha actual (arriba) y los datos del usuario (abajo). "
-            "NUNCA digas que no tienes acceso a la fecha/hora ni a datos actuales: "
-            "SÍ los tienes en este mismo prompt.\n"
-            "• Si hay un bloque de BÚSQUEDA WEB, úsalo para responder sobre "
-            "resultados o partidos recientes.\n"
-            "• Si te falta un dato muy concreto que no está en el contexto ni en la "
-            "web, pídelo en UNA línea — pero no te excuses con limitaciones genéricas.\n\n"
+            "TIENES HERRAMIENTAS — ÚSALAS en vez de excusarte:\n"
+            "• buscar_web → para resultados de partidos, lesiones, alineaciones, "
+            "fichajes o cualquier dato actual. Si el usuario pregunta por algo "
+            "reciente, BUSCA antes de responder; no digas 'no tengo acceso'.\n"
+            "• consultar_historial → para el rendimiento real del usuario "
+            "(picks liquidados, ROI, CLV, combinadas, quinielas).\n"
+            "NUNCA afirmes que no conoces la fecha o que no tienes acceso a datos: "
+            "tienes la fecha arriba y las herramientas para buscar el resto.\n\n"
             + (view_hint if view_hint else "")
             + "DATOS ACTUALES DEL USUARIO (AlphaBet):\n"
             + (self._context_block or "Sin análisis cargado todavía.")
-            + web_block
-            + "\n\nResponde siempre en español, conciso y preciso con los números."
+            + "\n\nResponde siempre en español, claro y preciso con los números."
         )
 
         messages = list(self._history) + [{"role": "user", "content": user_message}]
@@ -389,32 +479,68 @@ class FootballChat:
             import anthropic
             client = anthropic.Anthropic(api_key=self.api_key)
 
-            response_text: Optional[str] = None
-            for model in _MODELS_PREFERRED:
+            # Elegir el primer modelo disponible (los modernos soportan tools)
+            model_idx = 0
+            model = _MODELS_PREFERRED[0]
+            final_text = ""
+
+            for _step in range(6):   # loop agéntico acotado
                 try:
                     msg = client.messages.create(
                         model=model,
-                        max_tokens=600,
+                        max_tokens=2000,           # respuestas completas (antes 600)
                         system=system,
                         messages=messages,
+                        tools=self._TOOLS,
                     )
-                    response_text = msg.content[0].text.strip()
-                    _track(model, msg.usage.input_tokens, msg.usage.output_tokens)
-                    self._model_used = model
-                    break
                 except anthropic.NotFoundError:
+                    model_idx += 1
+                    if model_idx >= len(_MODELS_PREFERRED):
+                        return "⚠ Ningún modelo disponible con tu API key."
+                    model = _MODELS_PREFERRED[model_idx]
                     continue
 
-            if response_text is None:
-                return "⚠ Ningún modelo disponible con tu API key."
+                _track(model, msg.usage.input_tokens, msg.usage.output_tokens)
+                self._model_used = model
 
-            # Añadir al historial (máximo 20 turnos para no superar context window)
+                if msg.stop_reason == "tool_use":
+                    # Ejecutar las herramientas que pidió Claude y devolverle el resultado
+                    messages.append({"role": "assistant", "content": msg.content})
+                    results = []
+                    for block in msg.content:
+                        if getattr(block, "type", "") != "tool_use":
+                            continue
+                        name = block.name
+                        inp  = block.input or {}
+                        if name == "buscar_web":
+                            out = _web_search(inp.get("query", "")) or "Sin resultados en la búsqueda web."
+                        elif name == "consultar_historial":
+                            out = self._consultar_historial(inp.get("tipo", "resumen"))
+                        else:
+                            out = "Herramienta desconocida."
+                        results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": out,
+                        })
+                    messages.append({"role": "user", "content": results})
+                    continue
+
+                # Respuesta final (end_turn)
+                final_text = next(
+                    (b.text for b in msg.content if getattr(b, "type", "") == "text"), ""
+                ).strip()
+                break
+
+            if not final_text:
+                return "⚠ No pude completar el análisis (demasiados pasos)."
+
             self._history.append({"role": "user",      "content": user_message})
-            self._history.append({"role": "assistant",  "content": response_text})
-            if len(self._history) > 40:   # 20 turnos × 2
+            self._history.append({"role": "assistant",  "content": final_text})
+            if len(self._history) > 40:
                 self._history = self._history[-40:]
 
-            return response_text
+            return final_text
 
         except Exception as exc:
             logger.warning("FootballChat.send error: %s", exc)
