@@ -528,14 +528,16 @@ class PremiumApp(ctk.CTk):
         tk.Misc.lower(c)
 
     def _make_aurora_image(self, w: int, h: int, t: dict, intensity: float = 1.0):
-        """Genera el resplandor de aurora boreal del tema 🌌 Aurora: degradado
-        índigo + tres glows gaussianos (aqua/violeta) renderizados a baja
-        resolución con numpy y reescalados (suave y rápido, ~90 ms a 1080p).
+        """Genera cortinas de aurora boreal: bandas verticales de luz que
+        ondulan con la altura y se desvanecen hacia abajo (como la aurora
+        real), sobre índigo profundo. numpy a baja resolución + resize
+        BILINEAR (~90 ms). La izquierda se deja oscura para que el título del
+        banner sea legible.
 
-        intensity escala el brillo de los glows: 1.0 = fondo sutil de pantalla,
-        ~1.8 = banner hero (más vibrante). Funciona con cualquier tema (usa su
-        accent/accent2); sin tema "decor" igualmente da un degradado elegante.
-        Devuelve un PhotoImage o None si algo falla."""
+        intensity escala el brillo: 1.0 = fondo sutil de pantalla, ~1.8 =
+        banner hero (más vibrante). El tema 🌌 Aurora luce su gama mágica
+        (aqua/azul/violeta/rosa); los demás temas tiñen las cortinas con su
+        propio accent/accent2. Devuelve un PhotoImage o None si algo falla."""
         try:
             import numpy as np
             from PIL import Image, ImageTk
@@ -544,21 +546,42 @@ class PremiumApp(ctk.CTk):
                 c = c.lstrip("#")
                 return np.array([int(c[i:i+2], 16) for i in (0, 2, 4)], float)
 
-            sw, sh = 240, 150
+            sw, sh = 340, 200
             yy, xx = np.mgrid[0:sh, 0:sw].astype(float)
             yn, xn = yy / (sh - 1), xx / (sw - 1)
-            bg, top = _hx(t["bg"]), _hx(t.get("card2", t["bg"]))
-            a1, a2  = _hx(t["accent"]), _hx(t["accent2"])
-            base = bg[None, None, :] * yn[..., None] + top[None, None, :] * (1 - yn[..., None])
+            bg  = _hx(t["bg"])
+            top = _hx(t.get("card2", t["bg"]))
+            # Base: oscura arriba-izquierda (título legible) → leve color abajo
+            base = bg[None, None, :] * (1 - yn[..., None]) + top[None, None, :] * yn[..., None]
 
-            def _glow(cx, cy, sx, sy, col, s):
-                g = np.exp(-(((xn - cx) / sx) ** 2 + ((yn - cy) / sy) ** 2))
-                return g[..., None] * col[None, None, :] * (s * intensity)
+            # Paleta de cortinas: el tema aurora luce su gama mágica completa;
+            # los demás temas tiñen las cortinas con su propio acento.
+            a1, a2 = _hx(t["accent"]), _hx(t["accent2"])
+            if t.get("decor") == "aurora":
+                cols = [_hx("#5bf0d0"), _hx("#6f8bff"), _hx("#b07bff"), _hx("#e07bd8")]
+            else:
+                cols = [a1, (a1 + a2) / 2, a2, a2 * 0.7 + a1 * 0.3]
 
-            out = (base
-                   + _glow(0.26, 0.16, 0.34, 0.30, a1, 0.55)
-                   + _glow(0.74, 0.10, 0.40, 0.26, a2, 0.52)
-                   + _glow(0.50, 0.40, 0.58, 0.36, a1, 0.18))
+            # Cortinas de aurora: bandas verticales que ondulan con la altura y
+            # se desvanecen hacia abajo (como las cortinas de la aurora real).
+            # Grueso en xn 0.34–0.78 → visibles también en el banner del header,
+            # que se recorta por la derecha (canvas más estrecho que la pantalla).
+            # (x_centro, color, intensidad, ancho, frecuencia_onda, fase)
+            curtains = [
+                (0.46, cols[0], 0.55, 0.10, 2.2, 0.0),
+                (0.56, cols[1], 0.52, 0.13, 1.7, 1.3),
+                (0.66, cols[3], 0.42, 0.09, 2.6, 2.1),
+                (0.74, cols[2], 0.44, 0.10, 1.9, 0.6),
+                (0.88, cols[2], 0.34, 0.10, 2.3, 3.0),
+                (0.34, cols[0], 0.20, 0.09, 2.0, 1.0),
+            ]
+            out = base.copy()
+            for (xc, col, inten, wx, freq, ph) in curtains:
+                x_wave = xc + 0.05 * np.sin(yn * freq * np.pi * 2 + ph)
+                band   = np.exp(-(((xn - x_wave) / wx) ** 2))
+                vert   = np.exp(-(yn / 0.55) ** 1.5)   # brillo decae hacia abajo
+                out += (band * vert)[..., None] * col[None, None, :] * (inten * intensity)
+
             out = np.clip(out, 0, 255).astype("uint8")
             im  = Image.fromarray(out, "RGB").resize((max(w, 1), max(h, 1)), Image.BILINEAR)
             return ImageTk.PhotoImage(im)
