@@ -693,18 +693,43 @@ class PremiumApp(ctk.CTk):
         if c is None or not c.winfo_exists():
             return False
         try:
+            import numpy as np
             from PIL import Image, ImageOps, ImageTk
             from .core.themes import get_current_theme
             t    = get_current_theme()
             W, H = self._logo_size
             img  = Image.open(self._logo_path).convert("L")
             img  = ImageOps.fit(img, (W, H))
+            # Aplastar los oscuros: la nebulosa tenue del PNG (<52) → negro puro,
+            # que colorize mapea a sidebar_bg → el fondo del logo desaparece y
+            # se funde con el sidebar (sin el rectángulo de "parche pegado").
+            img  = img.point(lambda v: 0 if v < 52 else int((v - 52) / (255 - 52) * 255))
             tinted = ImageOps.colorize(
                 img,
                 black=t["sidebar_bg"], mid=t["accent2"], white="#f6fffb",
-                midpoint=150,
+                midpoint=140,
             )
-            photo = ImageTk.PhotoImage(tinted)
+
+            # ── Viñeta: desvanecer los bordes hacia el color del sidebar ──────
+            # Sin esto el PNG es un rectángulo con borde duro que parece un
+            # "parche pegado". La viñeta funde el logo con el sidebar → flota.
+            def _hx(c: str):
+                c = c.lstrip("#")
+                return np.array([int(c[i:i+2], 16) for i in (0, 2, 4)], float)
+
+            arr = np.asarray(tinted, dtype=float)
+            yy, xx = np.mgrid[0:H, 0:W].astype(float)
+            nx = (xx / (W - 1)) * 2 - 1          # -1..1
+            ny = (yy / (H - 1)) * 2 - 1
+            # Elíptica (más tolerante en Y, el contenido es vertical): mantiene
+            # α + textos intactos y solo funde las esquinas con el sidebar.
+            d = np.sqrt((nx * 0.92) ** 2 + (ny * 0.80) ** 2)
+            mask = np.clip((1.12 - d) / (1.12 - 0.80), 0.0, 1.0) ** 1.2
+            sidebar = _hx(t["sidebar_bg"])
+            blended = arr * mask[..., None] + sidebar[None, None, :] * (1 - mask[..., None])
+            out = Image.fromarray(np.clip(blended, 0, 255).astype("uint8"), "RGB")
+
+            photo = ImageTk.PhotoImage(out)
             c._bg_photo = photo            # mantener referencia viva
             c.itemconfig(self._logo_bg_item, image=photo)
             c.configure(bg=t["sidebar_bg"])
