@@ -7,7 +7,10 @@ MODEL_FILE = "football_model.joblib"
 
 FIXTURES_URL = "https://www.football-data.co.uk/fixtures.csv"
 
-LEAGUE_MAP: dict[str, tuple[str, str, str]] = {
+# Formato: (div_code, csv_historico_url_o_None, color_ui)
+# csv=None → liga sin histórico en football-data.co.uk → solo cuotas en tiempo real
+LEAGUE_MAP: dict[str, tuple[str, str | None, str]] = {
+    # ── Ligas europeas (histórico + cuotas) ─────────────────────────────────
     "Premier League": ("E0",  "https://www.football-data.co.uk/mmz4281/2526/E0.csv",  "#8b5cf6"),
     "Championship":   ("E1",  "https://www.football-data.co.uk/mmz4281/2526/E1.csv",  "#3b82f6"),
     "La Liga":        ("SP1", "https://www.football-data.co.uk/mmz4281/2526/SP1.csv", "#f59e0b"),
@@ -17,6 +20,10 @@ LEAGUE_MAP: dict[str, tuple[str, str, str]] = {
     "Ligue 1":        ("F1",  "https://www.football-data.co.uk/mmz4281/2526/F1.csv",  "#38bdf8"),
     "Primeira Liga":  ("P1",  "https://www.football-data.co.uk/mmz4281/2526/P1.csv",  "#10b981"),
     "Eredivisie":     ("N1",  "https://www.football-data.co.uk/mmz4281/2526/N1.csv",  "#fb923c"),
+    # ── Competiciones internacionales (solo cuotas en tiempo real) ───────────
+    "🏆 Mundial 2026":     ("WC",  None, "#ffd700"),
+    "🌎 Copa Libertadores": ("LIB", None, "#10b981"),
+    "🌎 Copa Sudamericana": ("CSU", None, "#06b6d4"),
 }
 
 # ── Paleta UI ──────────────────────────────────────────────────────────────────

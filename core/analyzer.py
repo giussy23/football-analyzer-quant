@@ -14,12 +14,14 @@ from .config import (
     CLV_MIN, KELLY_CAP, KELLY_FRACTION,
     MAX_OVERROUND_1X2, MAX_OVERROUND_OU, MIN_SAMPLE, MODEL_FILE,
 )
+from .consensus import bookmakers_from_api_response, consensus_from_bookmakers, edge_vs_consensus
 from .data import fetch_csv, prepare_fixtures, prepare_historic
 from .features import (
     build_feature_row, build_team_long,
     extract_market_features, fair_probs, overround,
 )
 from .model import FootballModel
+from .poisson import DixonColesModel
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +176,7 @@ class Analyzer:
         self.hist_by_div = {k: prepare_historic(v) for k, v in hist_by_div.items()}
         self.fixtures    = prepare_fixtures(fixtures_df)
         self.model       = FootballModel.load_or_none(MODEL_FILE) or FootballModel()
+        self.dc_model    = DixonColesModel()   # Modelo Poisson Dixon-Coles
         self.diagnostics:      list[str] = []
         self.backtest_summary: dict      = {}
 
@@ -191,9 +194,16 @@ class Analyzer:
 
         # Entrenar solo si es necesario
         if force_retrain or not self.model._fitted:
-            logger.info("Entrenando modelo...")
+            logger.info("Entrenando modelo ML...")
             self.model.fit(train_all)
             self.model.save(MODEL_FILE)
+
+        # Entrenar Dixon-Coles con todos los históricos disponibles
+        all_hist = pd.concat(list(self.hist_by_div.values()), ignore_index=True) \
+                   if self.hist_by_div else pd.DataFrame()
+        if len(all_hist) >= 50:
+            logger.info("Entrenando Dixon-Coles...")
+            self.dc_model.fit(all_hist)
 
         self.diagnostics = [
             f"Entrenado con {self.model.metrics['train_samples']} muestras",
@@ -226,7 +236,33 @@ class Analyzer:
                 feat.update(extract_market_features(r))
                 feat_row = pd.Series(feat)
 
-                p_home, p_draw, p_away, expected_goals, p_over = self.model.predict_row(feat_row)
+                p_home_ml, p_draw_ml, p_away_ml, expected_goals, p_over = \
+                    self.model.predict_row(feat_row)
+
+                # ── Ensemble ML + Dixon-Coles (60/40) ─────────────────────────
+                dc_pred = self.dc_model.predict(r.home_team, r.away_team) \
+                          if self.dc_model.is_fitted() else None
+
+                if dc_pred is not None:
+                    dc_h, dc_d, dc_a, _lh, _la = dc_pred
+                    p_home = round(0.60 * p_home_ml + 0.40 * dc_h, 4)
+                    p_draw = round(0.60 * p_draw_ml + 0.40 * dc_d, 4)
+                    p_away = round(0.60 * p_away_ml + 0.40 * dc_a, 4)
+                else:
+                    p_home, p_draw, p_away = p_home_ml, p_draw_ml, p_away_ml
+                    dc_h = dc_d = dc_a = None
+
+                # ── Consenso multi-casa (The Odds API) ────────────────────────
+                raw_bks       = r.get("_bookmakers_raw", []) or []
+                bk_list       = bookmakers_from_api_response({"home_team": r.home_team,
+                                                               "away_team": r.away_team,
+                                                               "bookmakers": raw_bks})
+                consensus_res = consensus_from_bookmakers(bk_list)
+                if consensus_res:
+                    cons_h, cons_d, cons_a, n_bks = consensus_res
+                else:
+                    cons_h = cons_d = cons_a = None
+                    n_bks  = 0
 
                 market      = "NO BET"
                 edge        = None
@@ -238,6 +274,7 @@ class Analyzer:
                 closing_fair  = None
                 clv           = None
                 market_move   = None
+                consensus_edge = None
 
                 # ── 1X2 ───────────────────────────────────────────────────────
                 if all(pd.notna(r.get(c)) for c in ["B365H", "B365D", "B365A"]):
@@ -255,6 +292,10 @@ class Analyzer:
                         fair_prob  = {"1": fh, "X": fd, "2": fa}[best]
                         opening_fair = fair_prob
                         ev = model_prob * odds - 1.0
+                        # Edge vs consenso multi-casa
+                        if cons_h is not None:
+                            cons_map = {"1": cons_h, "X": cons_d, "2": cons_a}
+                            consensus_edge = edge_vs_consensus(model_prob, cons_map[best])
 
                         if all(pd.notna(r.get(c)) for c in ["B365CH", "B365CD", "B365CA"]):
                             cp = fair_probs(float(r["B365CH"]), float(r["B365CD"]), float(r["B365CA"]))
@@ -308,6 +349,12 @@ class Analyzer:
                     "away_team":       r.away_team,
                     "pick":            market,
                     "odds":            round(odds, 2)         if odds        is not None else None,
+                    # Cuotas brutas de mercado para el simulador
+                    "B365H":           r.get("B365H"),
+                    "B365D":           r.get("B365D"),
+                    "B365A":           r.get("B365A"),
+                    "B365O25":         r.get("B365O25"),
+                    "B365U25":         r.get("B365U25"),
                     "edge":            round(edge, 4)         if edge        is not None else None,
                     "model_prob":      round(model_prob, 4)   if model_prob  is not None else None,
                     "fair_prob":       round(fair_prob, 4)    if fair_prob   is not None else None,
@@ -320,10 +367,24 @@ class Analyzer:
                     "market_entropy":  (round(feat_row.get("m_open_entropy"), 4)      if pd.notna(feat_row.get("m_open_entropy"))      else None),
                     "ev":              round(ev, 4)            if ev          is not None else None,
                     "expected_goals":  round(expected_goals, 2),
+                    # Ensemble: probabilidades finales (ML 60% + DC 40%)
                     "p_home":          round(p_home, 4),
                     "p_draw":          round(p_draw, 4),
                     "p_away":          round(p_away, 4),
                     "p_over25":        round(p_over, 4),
+                    # Desglose del ensemble para transparencia
+                    "p_home_ml":       round(p_home_ml, 4),
+                    "p_draw_ml":       round(p_draw_ml, 4),
+                    "p_away_ml":       round(p_away_ml, 4),
+                    "p_home_dc":       round(dc_h, 4) if dc_h is not None else None,
+                    "p_draw_dc":       round(dc_d, 4) if dc_d is not None else None,
+                    "p_away_dc":       round(dc_a, 4) if dc_a is not None else None,
+                    # Consenso multi-casa
+                    "consensus_h":     cons_h,
+                    "consensus_d":     cons_d,
+                    "consensus_a":     cons_a,
+                    "n_bookmakers":    n_bks,
+                    "consensus_edge":  round(consensus_edge, 4) if consensus_edge is not None else None,
                     "reliability_score": reliability,
                     "risk_light":      risk_light,
                     "no_bet":          no_bet,
@@ -331,7 +392,13 @@ class Analyzer:
                     "stake_units":     round(bankroll_pct, 2),
                     "analysis":        (
                         reason if no_bet == "SI"
-                        else f"EV {ev:.2%} | Edge {edge:.2%} | CLV {clv if clv is not None else 0:+.2%} | Kelly {bankroll_pct:.2f}%"
+                        else (
+                            f"EV {ev:.2%} | Edge {edge:.2%}"
+                            + (f" | ConsEdge {consensus_edge:+.2%}" if consensus_edge is not None else "")
+                            + (f" | CLV {clv:+.2%}" if clv is not None else "")
+                            + f" | Kelly {bankroll_pct:.2f}%"
+                            + (f" | {n_bks}bks" if n_bks > 1 else "")
+                        )
                     ),
                 })
 
